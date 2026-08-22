@@ -3,6 +3,7 @@ dist/
 dist-renderer/
 release/
 .vite/
+.wrangler/
 .pnpm-store/
 *.log
 .env

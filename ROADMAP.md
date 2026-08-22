@@ -13,6 +13,9 @@
 - [x] Add one-click onboarding with plain-language telephony explanations.
 - [x] Add the Windows desktop lab shell and unsigned Squirrel packaging route.
 - [x] Add the landing and documentation site with an explicit non-runtime boundary.
+- [x] Give the public site a dedicated beginner-first landing composition with a visual call path, rich-control demonstration, complete feature map, verified download, and production deployment route.
+- [x] Add a managed Sites/Cloudflare Worker build beside the GitHub Pages build.
+- [ ] Publish and verify the managed production deployment from the exact pushed source version.
 - [x] Add a real control-service preflight, health/capability states, permission-aware resource loading, and confirmed-save path.
 - [ ] Exercise those paths against a deployed control service and prove real PBX operations after the ultra-speed pass.
 
@@ -20,6 +23,7 @@
 
 - [ ] Run focused local tests after the ultra-speed pass is upgraded to the full verification workflow.
 - [ ] Capture every real built surface through the approved headless route.
+- [ ] Re-run public-site browser, responsive, keyboard, contrast, and visual checks when the required cheap headless route is available.
 - [x] Build an unsigned Squirrel installer locally; runtime/install verification remains pending.
 - [x] Publish and verify the first non-draft Windows release.
 - [x] Enable the live GitHub Pages deployment.

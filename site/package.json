@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "vite", "build": "vite build" },
+  "scripts": { "dev": "vite", "build": "vite build", "build:sites": "vite build --base=/" },
   "dependencies": {
     "@materialpbx/client": "workspace:*",
     "@materialpbx/design-integration": "workspace:*",
@@ -12,5 +12,13 @@
     "vue": "3.5.40",
     "vuetify": "3.13.0"
   },
-  "devDependencies": { "@vitejs/plugin-vue": "6.0.3", "vite": "6.4.3", "sass": "1.93.2" }
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "1.37.1",
+    "@cloudflare/workers-types": "4.20260515.1",
+    "@openai/sites-vite-plugin": "0.2.0",
+    "@vitejs/plugin-vue": "6.0.8",
+    "vite": "8.2.2",
+    "sass": "1.93.2",
+    "wrangler": "4.92.0"
+  }
 }

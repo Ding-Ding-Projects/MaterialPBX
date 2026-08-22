@@ -531,13 +531,88 @@ onBeforeUnmount(() => {
         <v-card v-if="settings.adhdTime" class="mb-4 pa-3" variant="tonal">Session open: {{ Math.floor(elapsedSeconds/60) }} minutes · Last setting change: {{ Math.floor((Date.now()-lastChangedAt)/60000) }} minutes ago</v-card>
 
         <template v-if="activePage === 'home'">
-          <div class="headline-row"><div><p class="eyebrow">CONTROL CENTER</p><h1>Your phone system, explained</h1><p>MaterialPBX turns FreePBX and Asterisk features into guided, visual workflows. Start with a safe setup or open an expert tool.</p></div><v-btn color="primary" size="large" @click="openPage('onboarding')">Start guided setup</v-btn></div>
-          <div class="metric-grid">
-            <v-card v-for="metric in [{label:'Active calls',value:healthSnapshot?.activeCalls ?? '—',help:healthSnapshot ? 'Not reported by the system-status endpoint' : 'Requires a live connection'},{label:'Registered phones',value:healthSnapshot?.registeredDevices ?? '—',help:healthSnapshot?.serverName ?? 'Requires a live connection'},{label:'Server warnings',value:healthSnapshot?.warnings.length ?? '—',help:healthSnapshot ? (healthSnapshot.warnings[0] ?? `Checked ${healthSnapshot.checkedAt}`) : 'No live health response'},{label:'Evidence-backed capabilities',value:capabilitySnapshot?.capabilities.length ?? '—',help:capabilitySnapshot ? `Schema ${capabilitySnapshot.schemaVersion} · ${capabilitySnapshot.generatedAt}` : 'Run connection preflight'}]" :key="metric.label" class="pa-5"><p>{{ metric.label }}</p><strong>{{ metric.value }}</strong><small>{{ metric.help }}</small></v-card>
-          </div>
-          <h2 class="mt-8">Common tasks</h2>
-          <div class="task-grid"><v-card v-for="item in pages.filter(item => ['extensions','trunks','inbound-routes','queues','backups','security'].includes(item.id))" :key="item.id" class="pa-5 task-card" tabindex="0" @click="openPage(item.id)" @keydown.enter="openPage(item.id)"><h3>{{ item.label }}</h3><p>{{ item.description }}</p><v-btn variant="text" @click.stop="openPage(item.id)">Open</v-btn></v-card></div>
-          <v-card v-if="props.surface === 'site'" class="mt-8 pa-6" variant="tonal"><h2>Downloads</h2><p>Download the latest verified non-draft unsigned Windows Squirrel installer. Windows may show an unknown-publisher or SmartScreen warning because code signing is intentionally disabled.</p><v-btn href="https://github.com/Ding-Ding-Projects/MaterialPBX/releases/latest/download/MaterialPBX-0.1.0-x64-Setup.exe" target="_blank" rel="noopener">Download MaterialPBX 0.1.0 for Windows</v-btn><p class="mt-4">This documentation site provides landing, documentation, download, status, settings, and link content only. It is not the PBX runtime. For production hosting, the one-click deployment guide uses the repository’s Docker Compose files and keeps telephony services on the dedicated Linux host.</p></v-card>
+          <template v-if="props.surface === 'site'">
+            <section class="site-hero" aria-labelledby="site-hero-title">
+              <div class="site-hero-copy">
+                <p class="eyebrow">A PHONE SYSTEM THAT EXPLAINS ITSELF</p>
+                <h1 id="site-hero-title">Calling for everyone, without the wall of forms</h1>
+                <p class="site-hero-lead">MaterialPBX turns FreePBX and Asterisk into guided, visual workflows. It explains every term, recommends a safe starting point, and still keeps the expert controls when you need them.</p>
+                <div class="site-hero-actions">
+                  <v-btn color="primary" size="x-large" prepend-icon="mdi-rocket-launch-outline" @click="openPage('onboarding')">Try the guided walkthrough</v-btn>
+                  <v-btn variant="tonal" size="x-large" prepend-icon="mdi-book-open-page-variant-outline" @click="openPage('docs')">Explore every feature</v-btn>
+                </div>
+                <p class="site-boundary-note"><v-icon icon="mdi-information-outline" aria-hidden="true"/> This public website teaches, documents, and links to verified downloads. The installed or hosted product is what controls a real phone system.</p>
+              </div>
+              <div class="site-call-map" aria-label="Example visual call path: public number, greeting, team, voicemail">
+                <div class="site-call-node emphasized"><v-icon icon="mdi-phone-incoming-outline"/><span><strong>Someone calls</strong><small>Your public number</small></span></div>
+                <div class="site-call-connector" aria-hidden="true"></div>
+                <div class="site-call-node"><v-icon icon="mdi-message-processing-outline"/><span><strong>Friendly greeting</strong><small>Press 1 for the team</small></span></div>
+                <div class="site-call-branches" aria-hidden="true"><span></span><span></span></div>
+                <div class="site-call-destinations">
+                  <div class="site-call-node"><v-icon icon="mdi-account-group-outline"/><span><strong>Ring the team</strong><small>Three phones together</small></span></div>
+                  <div class="site-call-node"><v-icon icon="mdi-voicemail"/><span><strong>Take a message</strong><small>When nobody answers</small></span></div>
+                </div>
+              </div>
+            </section>
+
+            <section class="site-choice-section" aria-labelledby="site-choice-title">
+              <p class="eyebrow">CHOOSE YOUR STARTING POINT</p>
+              <h2 id="site-choice-title">You do not need to know what a PBX is</h2>
+              <p>A PBX is simply the private phone system for a home or organization. It connects people, phones, public numbers, and the rules that decide where a call goes.</p>
+              <div class="site-choice-grid">
+                <v-card class="site-choice-card pa-6" variant="flat">
+                  <v-avatar color="primary-container" size="56"><v-icon icon="mdi-sprout-outline"/></v-avatar>
+                  <p class="eyebrow">I AM NEW</p><h3>Show me one safe step at a time</h3>
+                  <p>Use plain-language questions, recommended choices, visual call paths, inline explanations, and a review before anything changes.</p>
+                  <v-btn color="primary" variant="tonal" @click="openPage('onboarding')">Open the beginner walkthrough</v-btn>
+                </v-card>
+                <v-card class="site-choice-card pa-6" variant="flat">
+                  <v-avatar color="secondary-container" size="56"><v-icon icon="mdi-tune-variant"/></v-avatar>
+                  <p class="eyebrow">I KNOW PHONE SYSTEMS</p><h3>Give me the full Asterisk toolbox</h3>
+                  <p>Work with extensions, trunks, routes, queues, recordings, calendars, WebRTC, observability, security, paired servers, and advanced resource controls.</p>
+                  <v-btn color="secondary" variant="tonal" @click="openPage('docs')">Browse the complete feature map</v-btn>
+                </v-card>
+                <v-card class="site-choice-card pa-6" variant="flat">
+                  <v-avatar color="tertiary-container" size="56"><v-icon icon="mdi-server-network"/></v-avatar>
+                  <p class="eyebrow">I NEED THE REAL SERVICE</p><h3>Deploy the production stack</h3>
+                  <p>Use the one-click Docker Compose path on a dedicated Linux host. The browser website never pretends to be the telephony runtime.</p>
+                  <v-btn color="tertiary" variant="tonal" href="https://github.com/Ding-Ding-Projects/MaterialPBX/blob/main/docs/architecture/deployment.md" target="_blank" rel="noopener">Read the deployment guide</v-btn>
+                </v-card>
+              </div>
+            </section>
+
+            <section class="site-proof-section" aria-labelledby="site-proof-title">
+              <div><p class="eyebrow">A GUI THAT BEHAVES LIKE A GUI</p><h2 id="site-proof-title">Pick, slide, connect, preview</h2><p>Enumerated choices use real selectors. Ranges use sliders and steppers. Call destinations use visual cards and flows. Advanced values remain available without making raw configuration text the only route.</p></div>
+              <div class="site-control-preview" aria-label="Interactive interface examples">
+                <v-select model-value="Ring a group of phones" label="Incoming calls ring" :items="['One person','Ring a group of phones','A phone menu','Voicemail']" hide-details/>
+                <v-slider :model-value="20" min="5" max="120" step="5" label="Ring for 20 seconds" thumb-label hide-details/>
+                <div class="site-switch-row"><span>Encrypt voice when supported</span><v-switch :model-value="true" color="primary" hide-details aria-label="Encrypt voice when supported"/></div>
+                <v-alert type="success" variant="tonal" density="compact">Preview: the team rings for 20 seconds, then voicemail answers.</v-alert>
+              </div>
+            </section>
+
+            <section class="site-feature-section" aria-labelledby="site-feature-title">
+              <div class="site-section-heading"><div><p class="eyebrow">THE WHOLE FEATURE MAP</p><h2 id="site-feature-title">Asterisk depth, organized into understandable destinations</h2></div><v-btn variant="text" append-icon="mdi-arrow-right" @click="openPage('docs')">Open searchable documentation</v-btn></div>
+              <div class="site-feature-grid">
+                <button v-for="item in pages.filter(item => ['extensions','devices','trunks','inbound-routes','outbound-routes','ivrs','queues','ring-groups','voicemail','time-conditions','paired-servers','observability'].includes(item.id))" :key="item.id" class="site-feature-card" @click="openPage(item.id)">
+                  <v-icon :icon="`mdi-${item.icon}`" aria-hidden="true"/><span><strong>{{ item.label }}</strong><small>{{ item.description }}</small></span><v-icon icon="mdi-chevron-right" aria-hidden="true"/>
+                </button>
+              </div>
+            </section>
+
+            <section class="site-download-section" aria-labelledby="site-download-title">
+              <div><p class="eyebrow">READY WHEN YOU ARE</p><h2 id="site-download-title">Learn here. Run it where calls belong.</h2><p>Download the latest verified non-draft Windows installer for the desktop lab, or deploy the production phone service on a dedicated Linux host. The Windows installer is intentionally unsigned, so Windows may show an unknown-publisher or SmartScreen warning.</p></div>
+              <div class="site-download-actions"><v-btn color="primary" size="large" prepend-icon="mdi-microsoft-windows" href="https://github.com/Ding-Ding-Projects/MaterialPBX/releases/latest/download/MaterialPBX-0.1.0-x64-Setup.exe" target="_blank" rel="noopener">Download MaterialPBX 0.1.0</v-btn><v-btn variant="outlined" size="large" prepend-icon="mdi-github" href="https://github.com/Ding-Ding-Projects/MaterialPBX" target="_blank" rel="noopener">View the public repository</v-btn></div>
+            </section>
+          </template>
+          <template v-else>
+            <div class="headline-row"><div><p class="eyebrow">CONTROL CENTER</p><h1>Your phone system, explained</h1><p>MaterialPBX turns FreePBX and Asterisk features into guided, visual workflows. Start with a safe setup or open an expert tool.</p></div><v-btn color="primary" size="large" @click="openPage('onboarding')">Start guided setup</v-btn></div>
+            <div class="metric-grid">
+              <v-card v-for="metric in [{label:'Active calls',value:healthSnapshot?.activeCalls ?? '—',help:healthSnapshot ? 'Not reported by the system-status endpoint' : 'Requires a live connection'},{label:'Registered phones',value:healthSnapshot?.registeredDevices ?? '—',help:healthSnapshot?.serverName ?? 'Requires a live connection'},{label:'Server warnings',value:healthSnapshot?.warnings.length ?? '—',help:healthSnapshot ? (healthSnapshot.warnings[0] ?? `Checked ${healthSnapshot.checkedAt}`) : 'No live health response'},{label:'Evidence-backed capabilities',value:capabilitySnapshot?.capabilities.length ?? '—',help:capabilitySnapshot ? `Schema ${capabilitySnapshot.schemaVersion} · ${capabilitySnapshot.generatedAt}` : 'Run connection preflight'}]" :key="metric.label" class="pa-5"><p>{{ metric.label }}</p><strong>{{ metric.value }}</strong><small>{{ metric.help }}</small></v-card>
+            </div>
+            <h2 class="mt-8">Common tasks</h2>
+            <div class="task-grid"><v-card v-for="item in pages.filter(item => ['extensions','trunks','inbound-routes','queues','backups','security'].includes(item.id))" :key="item.id" class="pa-5 task-card" tabindex="0" @click="openPage(item.id)" @keydown.enter="openPage(item.id)"><h3>{{ item.label }}</h3><p>{{ item.description }}</p><v-btn variant="text" @click.stop="openPage(item.id)">Open</v-btn></v-card></div>
+          </template>
         </template>
 
         <template v-else-if="activePage === 'onboarding'">
@@ -606,9 +681,15 @@ onBeforeUnmount(() => {
           <section class="feature-hero">
             <div class="feature-symbol" aria-hidden="true">{{ visualFeature.icon }}</div>
             <div><p class="eyebrow">{{ visualFeature.eyebrow }}</p><h1>{{ page.label }}</h1><p class="feature-lead">{{ visualFeature.lead }}</p><p class="safe-default"><strong>Safe starting point:</strong> {{ visualFeature.default }}</p></div>
-            <div class="feature-actions"><v-btn variant="tonal" :loading="resourceLoading" :disabled="props.surface === 'site' || !['connected','degraded'].includes(connection)" :title="props.surface === 'site' ? 'The documentation site does not connect to a PBX.' : undefined" @click="loadResources(activePage as PbxResourceKind)">Refresh live data</v-btn><v-btn color="primary" :disabled="props.surface === 'site' || !canAttemptWriteCurrent" :title="props.surface === 'site' ? 'Install the app or open the hosted control interface to configure a PBX.' : !canAttemptWriteCurrent ? 'A prior write request was refused for this feature.' : 'Write permission is confirmed only after the server accepts a save.'" @click="openResourceEditor()">{{ activePage === 'observability' ? 'Configure view' : 'Create' }}</v-btn></div>
+            <div v-if="props.surface === 'site'" class="feature-actions"><v-btn variant="tonal" prepend-icon="mdi-book-open-page-variant-outline" @click="openPage('docs')">Browse all guides</v-btn><v-btn color="primary" prepend-icon="mdi-download-outline" href="https://github.com/Ding-Ding-Projects/MaterialPBX/releases/latest/download/MaterialPBX-0.1.0-x64-Setup.exe" target="_blank" rel="noopener">Get the real app</v-btn></div>
+            <div v-else class="feature-actions"><v-btn variant="tonal" :loading="resourceLoading" :disabled="!['connected','degraded'].includes(connection)" @click="loadResources(activePage as PbxResourceKind)">Refresh live data</v-btn><v-btn color="primary" :disabled="!canAttemptWriteCurrent" :title="!canAttemptWriteCurrent ? 'A prior write request was refused for this feature.' : 'Write permission is confirmed only after the server accepts a save.'" @click="openResourceEditor()">{{ activePage === 'observability' ? 'Configure view' : 'Create' }}</v-btn></div>
           </section>
-          <div class="feature-metrics">
+          <div v-if="props.surface === 'site'" class="feature-metrics">
+            <v-card class="pa-5"><span>What this page does</span><strong>Explains</strong><small>Definitions, the safe starting point, and how this capability fits into a call path.</small></v-card>
+            <v-card class="pa-5"><span>What this page never does</span><strong>No live changes</strong><small>The public website never connects to, reads from, or writes to a PBX.</small></v-card>
+            <v-card class="pa-5"><span>Where real controls run</span><strong>Installed or hosted</strong><small>Use the verified app or the dedicated production deployment.</small></v-card>
+          </div>
+          <div v-else class="feature-metrics">
             <v-card class="pa-5"><span>Live records</span><strong>{{ ['connected','degraded'].includes(connection) ? currentResources.length : '—' }}</strong><small>{{ ['connected','degraded'].includes(connection) ? currentAccess === 'denied' ? 'Resource request was refused' : 'Returned by this server' : 'Connect to load real records' }}</small></v-card>
             <v-card class="pa-5"><span>Observed access</span><strong>{{ currentAccess === 'write' ? 'Write confirmed' : currentAccess === 'read-only' ? 'Read only' : currentAccess === 'denied' ? 'Refused' : currentAccess === 'read' ? 'Read confirmed' : 'Not checked' }}</strong><small>The capability registry is evidence, not authorization. Access changes only after a real resource response.</small></v-card>
             <v-card class="pa-5"><span>PBX health</span><strong>{{ connectionLabel }}</strong><small>{{ healthSnapshot?.warnings[0] ?? connectionMessage }}</small></v-card>
@@ -619,7 +700,7 @@ onBeforeUnmount(() => {
           </section>
           <div class="control-room-grid" :aria-busy="resourceLoading">
             <v-card v-for="resource in currentResources" :key="resource.id" class="resource-card pa-5"><div class="resource-card-title"><div><h2>{{ resource.name }}</h2><p>{{ resource.summary || page.description }}</p></div><v-switch :model-value="resource.enabled" hide-details :label="`${resource.name} enabled`" :disabled="!canAttemptWriteCurrent" @update:model-value="openResourceEditor(resource)"/></div><div class="resource-tags"><v-chip v-for="tag in resource.tags" :key="tag" size="small">{{ tag }}</v-chip><v-chip size="small" variant="outlined">Updated {{ resource.updatedAt || 'time not reported' }}</v-chip></div><v-btn variant="text" :disabled="!canAttemptWriteCurrent" @click="openResourceEditor(resource)">Open visual editor</v-btn></v-card>
-            <v-card v-if="!currentResources.length" class="feature-empty pa-8"><div class="empty-icon">{{ visualFeature.icon }}</div><h2>{{ props.surface === 'site' ? 'Product control preview' : currentAccess === 'denied' ? 'Resource permission refused' : ['connected','degraded'].includes(connection) ? 'No records returned for this feature' : 'Connect to load real PBX records' }}</h2><p>{{ props.surface === 'site' ? 'This documentation page explains the installed and hosted controls. It never connects to or imitates a live PBX.' : currentAccess === 'denied' ? 'The authenticated resource request returned a permission refusal. Ask an administrator for the narrow resource permission and retry.' : ['connected','degraded'].includes(connection) ? 'The control service returned an empty list. MaterialPBX does not insert sample live data.' : 'You can review the guided controls and save a local draft. Nothing will be presented as live until preflight succeeds.' }}</p><v-btn v-if="props.surface !== 'site' && !['connected','degraded'].includes(connection)" color="primary" @click="connectDialog=true">Connect a server</v-btn><v-btn v-else-if="props.surface !== 'site' && canAttemptWriteCurrent" color="primary" @click="openResourceEditor()">Create the first item</v-btn><v-btn v-else-if="props.surface === 'site'" href="https://github.com/Ding-Ding-Projects/MaterialPBX/releases/latest/download/MaterialPBX-0.1.0-x64-Setup.exe" target="_blank" rel="noopener">Download the latest verified Windows installer</v-btn></v-card>
+            <v-card v-if="!currentResources.length" class="feature-empty pa-8"><div class="empty-icon">{{ visualFeature.icon }}</div><h2>{{ props.surface === 'site' ? 'Understand the feature before configuring it' : currentAccess === 'denied' ? 'Resource permission refused' : ['connected','degraded'].includes(connection) ? 'No records returned for this feature' : 'Connect to load real PBX records' }}</h2><p>{{ props.surface === 'site' ? 'This guide explains what the installed and hosted controls do, what a safe starting point looks like, and which related feature to learn next. It never shows fake live records.' : currentAccess === 'denied' ? 'The authenticated resource request returned a permission refusal. Ask an administrator for the narrow resource permission and retry.' : ['connected','degraded'].includes(connection) ? 'The control service returned an empty list. MaterialPBX does not insert sample live data.' : 'You can review the guided controls and save a local draft. Nothing will be presented as live until preflight succeeds.' }}</p><v-btn v-if="props.surface !== 'site' && !['connected','degraded'].includes(connection)" color="primary" @click="connectDialog=true">Connect a server</v-btn><v-btn v-else-if="props.surface !== 'site' && canAttemptWriteCurrent" color="primary" @click="openResourceEditor()">Create the first item</v-btn><v-btn v-else-if="props.surface === 'site'" variant="tonal" @click="openPage('docs')">Find related guides</v-btn></v-card>
           </div>
         </template>
 
