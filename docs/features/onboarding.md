@@ -4,6 +4,8 @@
 
 The onboarding wizard explains every PBX concept in plain language, saves a local draft, validates every requirement, and applies once.
 
+The public home page now leads with the same mental model: a call enters, one understandable condition decides what happens, and a visible destination receives it. The homepage route preview remains local and educational. **Build my first call path** opens the complete six-step walkthrough, whose final public step exports a planning checklist and never claims that a PBX was configured.
+
 The guided view presents validated pickers, switches, ranges, and clear suggested defaults. The expert view exposes the underlying Asterisk and FreePBX concepts without making raw configuration text the only path.
 
 ## Configuration
@@ -23,7 +25,7 @@ Credentials stay outside renderer storage, logs, exports, history, screenshots, 
 
 ## Verification
 
-This initial ultra-speed implementation was built without tests, lint, type checking, accessibility suites, security suites, smoke checks, or screenshots. The interface labels the disconnected state and does not claim live PBX verification.
+The redesigned public route compiled in both GitHub Pages and root-hosted production builds. Its source contract protects the route-studio entry point and public non-runtime boundary. Full keyboard, screen-reader, narrow-layout, and built-artifact visual verification remain pending under the upgraded release workflow.
 
 ## Suggested articles
 
@@ -31,4 +33,3 @@ This initial ultra-speed implementation was built without tests, lint, type chec
 - [Security](./security.md)
 - [Live operations](./observability.md)
 - [One-click hosting](./deployment.md)
-

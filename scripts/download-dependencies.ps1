@@ -5,6 +5,39 @@ $root = Split-Path -Parent $PSScriptRoot
 
 function Write-Phase([string]$Message) { Write-Host "[MaterialPBX] $Message" }
 
+function Get-PhpVersion([string]$Path) {
+  $versionOutput = @(& $Path -r 'echo PHP_VERSION;' 2>$null)
+  $versionExitCode = $LASTEXITCODE
+  if ($versionExitCode -ne 0 -or $versionOutput.Count -ne 1 -or $versionOutput[0] -notmatch '^8\.4\.[0-9]+$') { return $null }
+  try { return [Version]$versionOutput[0] }
+  catch { return $null }
+}
+
+function Find-PhpExecutable {
+  $candidates = New-Object Collections.Generic.List[string]
+  $command = Get-Command php.exe -ErrorAction SilentlyContinue
+  if ($command) { $candidates.Add($command.Source) }
+
+  $wingetPackages = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages'
+  if (Test-Path -LiteralPath $wingetPackages) {
+    $packageDirectories = Get-ChildItem -LiteralPath $wingetPackages -Directory -Filter 'PHP.PHP.8.4_*' -ErrorAction SilentlyContinue |
+      Sort-Object LastWriteTimeUtc -Descending
+    foreach ($directory in $packageDirectories) {
+      $candidate = Get-ChildItem -LiteralPath $directory.FullName -File -Recurse -Filter 'php.exe' -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+      if ($candidate) { $candidates.Add($candidate.FullName) }
+    }
+  }
+
+  $seen = New-Object Collections.Generic.HashSet[string]([StringComparer]::OrdinalIgnoreCase)
+  foreach ($candidatePath in $candidates) {
+    if (-not $seen.Add($candidatePath)) { continue }
+    $version = Get-PhpVersion $candidatePath
+    if ($version) { return [pscustomobject]@{ Path = $candidatePath; Version = $version } }
+  }
+  return $null
+}
+
 Write-Phase 'Checking Node.js 22 or newer.'
 $node = Get-Command node.exe -ErrorAction SilentlyContinue
 if (-not $node) {
@@ -39,16 +72,23 @@ $elapsed = (Get-Date) - $started
 Write-Phase ("Dependencies are ready in {0:c}." -f $elapsed)
 
 Write-Phase 'Checking the PHP command-line interpreter for FreePBX module syntax checks.'
-$php = Get-Command php.exe -ErrorAction SilentlyContinue
+$php = Find-PhpExecutable
 if (-not $php) {
   $winget = Get-Command winget.exe -ErrorAction SilentlyContinue
   if (-not $winget) { throw 'PHP is missing, and winget is unavailable. Tried the Windows Package Manager canonical source.' }
   Write-Phase 'Installing PHP through Windows Package Manager into the user scope.'
   & $winget.Source install PHP.PHP.8.4 --accept-package-agreements --accept-source-agreements --silent --scope user | Out-Host
-  if ($LASTEXITCODE -ne 0) { throw "PHP installation failed with exit code $LASTEXITCODE." }
+  $wingetExitCode = $LASTEXITCODE
   $env:Path = [Environment]::GetEnvironmentVariable('Path','User') + ';' + [Environment]::GetEnvironmentVariable('Path','Machine')
-  $php = Get-Command php.exe -ErrorAction SilentlyContinue
-  if (-not $php) { throw 'PHP installation completed but php.exe is not visible to this process.' }
+  $php = Find-PhpExecutable
+  if (-not $php) { throw "PHP 8.4 installation or discovery failed with Windows Package Manager exit code $wingetExitCode." }
 }
-Write-Phase "Using $(& $php.Source --version | Select-Object -First 1)."
-
+$phpPath = $php.Path
+$phpDirectory = Split-Path -Parent $phpPath
+if (($env:Path -split ';') -notcontains $phpDirectory) { $env:Path = "$phpDirectory;$env:Path" }
+$phpVersionOutput = & $phpPath --version
+$phpExitCode = $LASTEXITCODE
+if ($phpExitCode -ne 0) { throw "PHP was found at $phpPath but could not execute (exit code $phpExitCode)." }
+$phpVersionLine = $phpVersionOutput | Select-Object -First 1
+if ($php.Version.Major -ne 8 -or $php.Version.Minor -ne 4) { throw "PHP $($php.Version) was selected, but MaterialPBX requires PHP 8.4.x." }
+Write-Phase "Using $phpVersionLine from $phpPath (validated PHP 8.4.x)."

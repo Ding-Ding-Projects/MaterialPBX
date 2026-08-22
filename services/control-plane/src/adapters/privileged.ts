@@ -11,11 +11,36 @@ const ReplySchema = z.object({
   error: z.string().max(2048).nullable()
 });
 
+const BuildInfoSchema = z.object({
+  service: z.literal("@materialpbx/privileged-helper"),
+  serviceVersion: z.string().min(1).max(64),
+  protocolVersion: z.literal(1),
+  readinessSchemaVersion: z.literal(1),
+  desiredStateSnapshotSchemaVersion: z.literal(1),
+  installedManifestSha256: z.string().regex(/^(?!0{64}$)[a-f0-9]{64}$/)
+}).strict();
+const HelperIdentitySchema = z.object({ schemaVersion: z.literal(1), build: BuildInfoSchema }).strict();
+
+const HelperReadinessSchema = z.object({
+  schemaVersion: z.literal(1),
+  observedAt: z.string().datetime(),
+  build: BuildInfoSchema,
+  helper: z.object({ ready: z.boolean() }).strict(),
+  freepbx: z.object({ ready: z.boolean(), versionObserved: z.boolean() }).strict(),
+  asterisk: z.object({ ready: z.boolean(), versionObserved: z.boolean() }).strict(),
+  materialpbxModule: z.object({ ready: z.boolean(), inventoryObserved: z.boolean(), name: z.string().nullable(), version: z.string().nullable(), status: z.string().nullable() }).strict(),
+  ready: z.boolean()
+}).strict();
+
+export type HelperBuildInfo = z.infer<typeof BuildInfoSchema>;
+export type HelperReadiness = z.infer<typeof HelperReadinessSchema>;
+
 export type PrivilegedOperation =
+  | "system.identity"
+  | "system.readiness"
   | "system.capabilities"
   | "fwconsole.version"
   | "fwconsole.reload"
-  | "fwconsole.status"
   | "freepbx.application.apply"
   | "freepbx.application.remove"
   | "freepbx.application.rollback"
@@ -32,6 +57,7 @@ export class PrivilegedHelperClient {
   execute(operation: PrivilegedOperation, parameters: Record<string, unknown> = {}, timeoutMs = 30_000) {
     const requestId = randomUUID();
     const request = `${JSON.stringify({ requestId, operation, parameters })}\n`;
+    if (Buffer.byteLength(request) > 256 * 1024) return Promise.reject(new Error("Privileged helper request exceeded 256 KiB"));
     return new Promise<z.infer<typeof ReplySchema>>((resolve, reject) => {
       const socket = createConnection(this.socketPath);
       let response = "";
@@ -67,5 +93,18 @@ export class PrivilegedHelperClient {
         if (!settled) finish(new Error("Privileged helper closed without a response"));
       });
     });
+  }
+
+  async identity(): Promise<HelperBuildInfo> {
+    const reply = await this.execute("system.identity");
+    if (!reply.ok) throw new Error(reply.error ?? (reply.stderr || "Privileged helper identity probe failed"));
+    return HelperIdentitySchema.parse(JSON.parse(reply.stdout)).build;
+  }
+
+  async readiness(): Promise<HelperReadiness> {
+    const reply = await this.execute("system.readiness", {}, 18_000);
+    const parsed = HelperReadinessSchema.parse(JSON.parse(reply.stdout));
+    if (reply.ok !== parsed.ready) throw new Error("Privileged helper readiness envelope was internally inconsistent");
+    return parsed;
   }
 }

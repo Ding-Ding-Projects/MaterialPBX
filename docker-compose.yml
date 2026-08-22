@@ -2,12 +2,22 @@ name: materialpbx
 
 services:
   pbx:
+    profiles: ["lab"]
     build:
       context: .
       dockerfile: deploy/pbx/Dockerfile
     image: materialpbx/pbx:${MATERIALPBX_VERSION:-dev}
+    depends_on:
+      privileged-helper-image:
+        condition: service_completed_successfully
     hostname: ${MATERIALPBX_HOSTNAME:-materialpbx}
+    extra_hosts:
+      - "${MATERIALPBX_HOSTNAME:-materialpbx}:127.0.0.1"
     network_mode: host
+    # SECURITY BOUNDARY: host networking plus NET_ADMIN and NET_RAW grants this
+    # disposable system container authority over the host network namespace.
+    # Run the lab only inside a dedicated disposable VM, never on a general-purpose
+    # or production Docker host.
     cgroup: host
     cgroup_parent: materialpbx.slice
     stop_grace_period: 2m
@@ -21,6 +31,9 @@ services:
       - NET_BIND_SERVICE
       - NET_RAW
       - SETGID
+      # PID 1 needs SETPCAP to apply stricter per-service capability bounds.
+      # Redis itself still starts as its dedicated user with an empty set.
+      - SETPCAP
       - SETUID
       - SYS_ADMIN
       - SYS_CHROOT
@@ -38,13 +51,20 @@ services:
       - materialpbx-asterisk-spool:/var/spool/asterisk
       - materialpbx-www:/var/www
       - materialpbx-data:/var/lib/materialpbx
-      - materialpbx-helper-socket:/run/materialpbx
+      - materialpbx-helper-socket:/var/lib/materialpbx-helper
       - materialpbx-helper-runtime:/opt/materialpbx-helper:ro
-      - ${MATERIALPBX_SECRET_DIR:?Set MATERIALPBX_SECRET_DIR}:/run/materialpbx-secrets
+      - ${MATERIALPBX_SECRET_DIR:?Set MATERIALPBX_SECRET_DIR}:/etc/materialpbx/secrets-input:ro
       - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    healthcheck:
+      test: ["CMD-SHELL", "test -s /var/lib/materialpbx/freepbx-installed && systemctl is-active --quiet materialpbx-privileged-helper.service && grep -Fxq 'phase=ready' /var/lib/materialpbx/freepbx-bootstrap-state && timeout 10s asterisk -rx 'core show version' >/dev/null 2>&1 && timeout 10s curl --fail --silent --max-time 5 http://127.0.0.1/admin/config.php >/dev/null && timeout 10s /usr/bin/setpriv --reuid=991 --regid=991 --clear-groups /usr/bin/node /usr/local/libexec/materialpbx-helper-probe.mjs"]
+      interval: 30s
+      timeout: 40s
+      retries: 3
+      start_period: 60m
     restart: unless-stopped
 
   privileged-helper-image:
+    profiles: ["lab"]
     build:
       context: .
       dockerfile: deploy/helper/Dockerfile
@@ -59,6 +79,7 @@ services:
     restart: "no"
 
   control-plane:
+    profiles: ["lab"]
     build:
       context: .
       dockerfile: deploy/control-plane/Dockerfile
@@ -66,7 +87,7 @@ services:
     network_mode: service:pbx
     depends_on:
       pbx:
-        condition: service_started
+        condition: service_healthy
       privileged-helper-image:
         condition: service_completed_successfully
     read_only: true
@@ -82,8 +103,8 @@ services:
       MATERIALPBX_DATA_DIR: /var/lib/materialpbx/control-plane
       MATERIALPBX_ADMIN_TOKEN_FILE: /run/secrets/admin-token
       ASTERISK_AMI_SECRET_FILE: /run/secrets/ami-secret
-      FREEPBX_DATABASE_DSN_FILE: /run/secrets/freepbx-dsn
-      PRIVILEGED_HELPER_SOCKET: /run/materialpbx/privileged.sock
+      FREEPBX_DATABASE_DSN_FILE: /var/lib/materialpbx/control-plane/freepbx-dsn
+      PRIVILEGED_HELPER_SOCKET: /var/lib/materialpbx-helper/privileged.sock
       ASTERISK_RECORDINGS_DIR: /var/spool/asterisk/monitor
       ASTERISK_ARI_URL: http://127.0.0.1:8088/ari/
       ASTERISK_ARI_USERNAME: materialpbx
@@ -92,10 +113,9 @@ services:
       - admin-token
       - ami-secret
       - ari-secret
-      - freepbx-dsn
     volumes:
       - materialpbx-data:/var/lib/materialpbx
-      - materialpbx-helper-socket:/run/materialpbx
+      - materialpbx-helper-socket:/var/lib/materialpbx-helper
       - materialpbx-asterisk-spool:/var/spool/asterisk:ro
     restart: unless-stopped
 
@@ -106,9 +126,6 @@ secrets:
     file: ${MATERIALPBX_SECRET_DIR}/ami-secret
   ari-secret:
     file: ${MATERIALPBX_SECRET_DIR}/ari-secret
-  freepbx-dsn:
-    file: ${MATERIALPBX_SECRET_DIR}/freepbx-dsn
-
 volumes:
   materialpbx-mysql:
   materialpbx-asterisk-etc:

@@ -3,7 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "vite", "build": "vite build && node ../scripts/check-site-contract.mjs /MaterialPBX/", "build:sites": "vite build --base=/ && node ../scripts/check-site-contract.mjs /" },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:verified": "vite build && node ../scripts/check-site-contract.mjs /MaterialPBX/ https://ding-ding-projects.github.io/MaterialPBX/",
+    "build:sites": "vite build --base=/ && node ../scripts/check-site-contract.mjs / https://materialpbx.yeredow264.chatgpt.site/"
+  },
   "dependencies": {
     "@materialpbx/client": "workspace:*",
     "@materialpbx/design-integration": "workspace:*",

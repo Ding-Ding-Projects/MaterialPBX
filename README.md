@@ -4,7 +4,7 @@ MaterialPBX is a guided, visual control surface for FreePBX and Asterisk. It kee
 
 - Documentation site: <https://ding-ding-projects.github.io/MaterialPBX/>
 - Managed production site: <https://materialpbx.yeredow264.chatgpt.site/>
-- Install: [MaterialPBX 0.1.0 for Windows](https://github.com/Ding-Ding-Projects/MaterialPBX/releases/latest/download/MaterialPBX-0.1.0-x64-Setup.exe) — latest verified non-draft unsigned Squirrel installer. Windows may show an unknown-publisher or SmartScreen warning because code signing is intentionally disabled.
+- Install candidate: [MaterialPBX 0.1.1 for Windows](https://github.com/Ding-Ding-Projects/MaterialPBX/releases/latest/download/MaterialPBX-0.1.1-x64-Setup.exe) — this stable URL resolves only when the latest verified non-draft release contains the 0.1.1 asset. The installer is unsigned, so Windows may show an unknown-publisher or SmartScreen warning.
 - Delivery: production Linux hosting plus a Windows desktop lab.
 - License: GPL-3.0-or-later.
 
@@ -14,9 +14,25 @@ MaterialPBX is a guided, visual control surface for FreePBX and Asterisk. It kee
 - [Feature documentation](docs/features/README.md)
 - [User guide](docs/user-guide/README.md)
 - [Build and packaging](#build-and-packaging)
+- [Release evidence and scale estimate](#release-evidence-and-scale-estimate)
 - [Architecture and safety boundary](#architecture-and-safety-boundary)
 - [Roadmap](ROADMAP.md)
 - [Handoff](HANDOFF.md)
+
+<details>
+<summary>Real interface captures</summary>
+
+These captures came from the built `/MaterialPBX/` client at the current uncommitted candidate, driven on the approved cheap named hidden-desktop route. They are local built-artifact evidence, not proof that this candidate has been committed or published.
+
+![Dark-themed MaterialPBX website at desktop width, with a Get app button, a large “Your calls. Drawn out, not buried in forms.” hero, guided-setup and feature buttons, three product commitments, and an interactive call-route preview routing an incoming call to a team ring group.](docs/screenshots/website-home-desktop.png)
+
+![Dark-themed MaterialPBX website at a narrow width, with the logo, Get app button, overflow control, single-column “Your calls. Drawn out, not buried in forms.” hero, guided-setup and feature buttons, and vertically stacked product commitments.](docs/screenshots/website-home-narrow.png)
+
+![Narrow MaterialPBX website with the Website actions popover open above the hero, showing a filter field, regular-expression builder button, “5 of 5 actions shown,” and actions for How it works, Features, Notifications, Command palette, and Settings.](docs/screenshots/website-home-overflow.png)
+
+![Freshly installed MaterialPBX 0.1.1 desktop application on a hidden Windows desktop, showing the disconnected control center, guided setup action, real navigation, and empty live-data cards.](docs/screenshots/installer-fresh-launch-0.1.1.png)
+
+</details>
 
 <details>
 <summary>Features and interaction model</summary>
@@ -45,6 +61,25 @@ pnpm package:windows
 
 Code signing is intentionally disabled. The installer may show an unknown-publisher or SmartScreen warning.
 
+The reproducible line counter reads an exact committed tree and prints the same categorized table used in release notes:
+
+```powershell
+node scripts/count-lines.mjs --revision HEAD
+```
+
+The focused release-evidence contract is `pnpm check:release-evidence`. See [Release evidence](docs/features/release-evidence.md) for category definitions, surviving-line attribution, canonical public-image provenance, supported installer and native-host packaging, exact published-asset verification, timing, and failure behavior.
+
+</details>
+
+<details>
+<summary>Release evidence and scale estimate</summary>
+
+The latest measured committed baseline is `3f31f818e04316d7edfe6174297d0f160f2c129b`. The committed counter reports 6,239 nonblank hand-written project lines at that commit; generated files and dependency lockfiles are excluded from that project figure and remain visible in separate rows.
+
+Estimated manual implementation effort: **about 260–520 engineer-days (12–24 engineer-months)**. This is an estimate, not measured history. The disclosed calculation is `6,239 nonblank project lines ÷ 30–15 reviewed production lines per engineer-day × 1.25 integration/documentation multiplier`. It excludes generated assets, dependency lockfiles, installed dependencies, and build output exactly as the counter does. The range is informational and is not a productivity claim.
+
+Each successful release runs the same counter at its exact target commit, publishes the full table and attribution arithmetic in its release notes, and supersedes this convenience baseline with release-specific evidence.
+
 </details>
 
 <details>
@@ -65,8 +100,8 @@ MaterialPBX consumes the published `@worldlens/design-system` package. Shared co
 <details>
 <summary>Verification state and scale estimate</summary>
 
-This ultra-speed implementation deliberately did not run tests, lint, type checking, accessibility suites, security suites, smoke checks, or screenshots. Build and packaging outcomes are reported separately and do not imply runtime verification.
+The upgraded verification pass includes 62-row public-site checks with 62 deliberate negative regressions, 73-row installer checks with five deliberate negative regressions, 135-row runtime/deployment checks with 23 forbidden-pattern regressions, and 95-row release-evidence checks with 105 deliberate negative regressions. GitHub Pages and managed-hosting production builds both completed locally. Real built-client captures cover the public Home at desktop and narrow widths, its narrow overflow surface, and a fresh installed desktop launch. All captures used the approved cheap named hidden-desktop route and did not touch the visible desktop. The public-site captures bind to the current candidate rather than a published release; they do not prove keyboard-only behavior, contrast, a live PBX, or production telephony behavior.
 
-No release line count exists yet. The first release workflow will run the committed counter and publish source, tests, styles/markup, generated, excluded, and attribution totals. A human-effort estimate will then be calculated from the hand-written count using a disclosed range rather than invented before the count exists.
+The release workflow now runs the committed line counter against the exact release target; publishes source, tests and verification, styles and markup, documentation, configuration and data, generated, excluded, grand, nonblank, and surviving-line attribution totals; links digest-verified public dim-sum provenance without copying the photograph; builds through the supported installer verifier; and attaches a self-contained native-host deployment archive. It rejects reused tag refs, equal installed versions, mismatched exact-commit installer icons, incomplete native payloads, and published assets whose downloaded bytes differ from staging. The workflow still performs build, packaging, evidence, and publication only; local checks and runtime evidence remain separate.
 
 </details>

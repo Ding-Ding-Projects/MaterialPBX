@@ -28,6 +28,35 @@ import { AmiAdapter } from "./adapters/ami.js";
 import { AriAdapter } from "./adapters/ari.js";
 import { CallRecordAdapter } from "./adapters/cdr.js";
 import { RecordingCatalog } from "./adapters/recordings.js";
+import { verifyPayloadIdentity } from "./payload-identity.js";
+
+const Identifier = z.string().min(1).max(128).regex(/^[A-Za-z0-9][A-Za-z0-9_.:@+-]*$/);
+const BUILD_INFO = await verifyPayloadIdentity();
+
+function safeFailure(error: unknown): { name: string; code: string | null } {
+  const candidate = error instanceof Error ? error : new Error("Unknown adapter failure");
+  const rawCode = typeof error === "object" && error !== null && "code" in error ? (error as { code?: unknown }).code : null;
+  const code = typeof rawCode === "string" && /^[A-Z0-9_]{1,64}$/.test(rawCode) ? rawCode : null;
+  return { name: candidate.name || "Error", code };
+}
+
+async function withReadinessDeadline<T>(label: string, timeoutMs: number, action: () => Promise<T>): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      action(),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(Object.assign(new Error(`${label} readiness probe exceeded its deadline`), { code: "READINESS_TIMEOUT" })), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function settledReadiness(result: PromiseSettledResult<unknown>) {
+  return result.status === "fulfilled" ? { ready: true as const, failure: null } : { ready: false as const, failure: safeFailure(result.reason) };
+}
 
 const config = loadConfig();
 const adminToken = await readSecret(config.adminTokenFile);
@@ -41,7 +70,9 @@ const ami = new AmiAdapter(config.ami);
 const ari = new AriAdapter(config.ari);
 const records = new CallRecordAdapter(config.freepbxDatabaseDsnFile);
 let recordsAvailable = true;
-try { await records.initialize(); } catch { recordsAvailable = false; }
+let recordsInitializationFailure: { name: string; code: string | null } | null = null;
+try { await records.initialize(); }
+catch (error) { recordsAvailable = false; recordsInitializationFailure = safeFailure(error); }
 const recordings = new RecordingCatalog(config.recordingsDir);
 const federation = new FederationEngine(`${config.dataDir}/federation`, config.nodeName, config.publicUrl, config.federation.invitationTtlSeconds, config.federation.maxClockSkewSeconds, audit);
 await federation.initialize();
@@ -54,10 +85,12 @@ const server = (config.tls
 
 await server.register(cors, { origin: new URL(config.publicUrl).origin, methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"] });
 await server.register(rateLimit, { max: 300, timeWindow: "1 minute", ban: 3 });
+if (recordsInitializationFailure) server.log.error({ adapter: "freepbx-database", failure: recordsInitializationFailure }, "database adapter initialization failed");
 
 server.addHook("onRequest", async (request, reply) => {
   metrics.increment("http_requests_total");
-  if (request.url === "/healthz" || request.url === "/v1/federation/messages") return;
+  const pathname = request.url.split("?", 1)[0];
+  if (pathname === "/healthz" || pathname === "/v1/federation/messages") return;
   const authorization = request.headers.authorization;
   const presented = authorization?.startsWith("Bearer ") ? authorization.slice(7) : "";
   if (!constantTimeTextEqual(presented, adminToken)) {
@@ -69,13 +102,53 @@ server.addHook("onRequest", async (request, reply) => {
 
 server.setErrorHandler(async (error, request, reply) => {
   metrics.increment("http_errors_total");
-  const status = Number.isInteger((error as { statusCode?: number }).statusCode) ? (error as { statusCode: number }).statusCode : error instanceof z.ZodError ? 400 : 500;
-  request.log.error({ err: error, status }, "request failed");
-  await audit.record({ actor: request.ip, action: "api.request", target: request.url, outcome: "failed", detail: { status, errorName: error.name } });
-  return reply.code(status).send({ error: status === 500 ? "internal_error" : "invalid_request", message: status === 500 ? "The request could not be completed." : error.message });
+  const safeError = error instanceof Error ? error : new Error("Unknown request failure");
+  const candidateStatus = typeof error === "object" && error !== null && "statusCode" in error ? (error as { statusCode?: unknown }).statusCode : undefined;
+  const status = typeof candidateStatus === "number" && Number.isInteger(candidateStatus) ? candidateStatus : error instanceof z.ZodError ? 400 : 500;
+  request.log.error({ err: safeError, status }, "request failed");
+  await audit.record({ actor: request.ip, action: "api.request", target: request.url, outcome: "failed", detail: { status, errorName: safeError.name } });
+  return reply.code(status).send({ error: status === 500 ? "internal_error" : "invalid_request", message: status === 500 ? "The request could not be completed." : safeError.message });
 });
 
 server.get("/healthz", async () => ({ status: "ok", time: new Date().toISOString() }));
+server.get("/readyz", async (_request, reply) => {
+  const [helperResult, databaseResult, amiResult, ariResult] = await Promise.allSettled([
+    withReadinessDeadline("privileged helper", 20_000, () => helper.readiness()),
+    withReadinessDeadline("database", 8_000, () => records.probe()),
+    withReadinessDeadline("AMI", 8_000, () => ami.probe()),
+    withReadinessDeadline("ARI", 8_000, () => ari.probe())
+  ]);
+  const database = settledReadiness(databaseResult);
+  const amiReadiness = settledReadiness(amiResult);
+  const ariReadiness = settledReadiness(ariResult);
+  recordsAvailable = database.ready;
+  const helperReady = helperResult.status === "fulfilled" ? helperResult.value : null;
+  const helperFailure = helperResult.status === "rejected" ? safeFailure(helperResult.reason) : null;
+  const compatibility = {
+    ready: Boolean(helperReady && helperReady.build.protocolVersion === BUILD_INFO.protocolVersion && helperReady.build.readinessSchemaVersion === BUILD_INFO.readinessSchemaVersion && helperReady.build.desiredStateSnapshotSchemaVersion === BUILD_INFO.desiredStateSnapshotSchemaVersion),
+    expectedService: "@materialpbx/privileged-helper",
+    observedService: helperReady?.build.service ?? null,
+    protocolVersion: helperReady?.build.protocolVersion ?? null,
+    readinessSchemaVersion: helperReady?.build.readinessSchemaVersion ?? null,
+    desiredStateSnapshotSchemaVersion: helperReady?.build.desiredStateSnapshotSchemaVersion ?? null
+  };
+  const checks = {
+    helper: { ready: Boolean(helperReady?.helper.ready && helperReady.ready), failure: helperFailure, build: helperReady?.build ?? null },
+    database,
+    ami: amiReadiness,
+    ari: ariReadiness,
+    compatibility,
+    module: { ...(helperReady?.materialpbxModule ?? { ready: false, inventoryObserved: false, name: null, version: null, status: null }), failure: helperFailure },
+    runtime: {
+      ready: Boolean(helperReady?.freepbx.ready && helperReady?.asterisk.ready),
+      freepbx: helperReady?.freepbx ?? { ready: false, versionObserved: false },
+      asterisk: helperReady?.asterisk ?? { ready: false, versionObserved: false },
+      failure: helperFailure
+    }
+  };
+  const ready = checks.helper.ready && checks.database.ready && checks.ami.ready && checks.ari.ready && checks.compatibility.ready && checks.module.ready && checks.runtime.ready;
+  return reply.code(ready ? 200 : 503).send({ schemaVersion: 1, status: ready ? "ready" : "not-ready", observedAt: new Date().toISOString(), build: BUILD_INFO, checks });
+});
 server.get("/v1/system/status", async () => {
   let capabilities: Record<string, unknown> | null = null;
   let helperError: string | null = null;
@@ -86,7 +159,7 @@ server.get("/v1/system/status", async () => {
     !recordsAvailable ? "CDR/CEL database access is unavailable. Call record views are incomplete until the database credential or socket is restored." : null,
     helperError ? "The bounded privileged helper is unavailable. Configuration can be saved, but PBX application and reload operations will fail." : null
   ].filter(Boolean);
-  return { identity: federation.identity(), capabilities, warnings, adapters: { privilegedHelper: !helperError, cdrDatabase: recordsAvailable, ami: "runtime-probed", ari: "runtime-probed" } };
+  return { identity: federation.identity(), build: BUILD_INFO, capabilities, warnings, adapters: { privilegedHelper: !helperError, cdrDatabase: recordsAvailable, ami: "runtime-probed", ari: "runtime-probed" } };
 });
 server.get("/v1/system/capabilities", async () => freepbx.capabilities());
 server.get("/v1/system/capability-registry", async () => freepbx.capabilities());
@@ -97,13 +170,13 @@ server.get("/v1/resources", async request => {
   return { items: resources.list(query.kind), kinds: resourceKinds };
 });
 server.get("/v1/resources/:kind/:id", async request => {
-  const params = z.object({ kind: ResourceKindSchema, id: z.string().min(1).max(128) }).parse(request.params);
+  const params = z.object({ kind: ResourceKindSchema, id: Identifier }).parse(request.params);
   const item = resources.get(params.kind, params.id);
   if (!item) throw Object.assign(new Error("Resource not found"), { statusCode: 404 });
   return item;
 });
 server.put("/v1/resources/:kind/:id", async request => {
-  const params = z.object({ kind: ResourceKindSchema, id: z.string().min(1).max(128).regex(/^[A-Za-z0-9_.:@+-]+$/) }).parse(request.params);
+  const params = z.object({ kind: ResourceKindSchema, id: Identifier }).parse(request.params);
   const mutation = ResourceMutationSchema.parse(request.body);
   const item = await resources.upsert(params.kind, params.id, mutation);
   const application = await freepbx.apply(item);
@@ -113,11 +186,11 @@ server.put("/v1/resources/:kind/:id", async request => {
   return { resource: item, application };
 });
 server.delete("/v1/resources/:kind/:id", async request => {
-  const params = z.object({ kind: ResourceKindSchema, id: z.string().min(1).max(128) }).parse(request.params);
+  const params = z.object({ kind: ResourceKindSchema, id: Identifier }).parse(request.params);
   const query = z.object({ expectedRevision: z.coerce.number().int().nonnegative().optional() }).parse(request.query);
   const removed = await resources.delete(params.kind, params.id, query.expectedRevision);
   if (!removed) throw Object.assign(new Error("Resource not found"), { statusCode: 404 });
-  const application = await freepbx.remove(params.kind, params.id);
+  const application = await freepbx.remove(removed);
   metrics.increment("resource_mutations_total");
   events.publish({ topic: "system", type: "resource.deleted", source: "control-plane", payload: { kind: params.kind, id: params.id, applied: application.applied } });
   await audit.record({ actor: "local-admin", action: "resource.delete", target: `${params.kind}:${params.id}`, outcome: application.applied ? "allowed" : "failed", detail: { revision: removed.revision, application } });
@@ -155,7 +228,7 @@ server.post("/v1/runtime/hangup", async request => {
   return { accepted: true, result };
 });
 server.post("/v1/resources/call-files/:id/submit", async request => {
-  const params = z.object({ id: z.string().min(1).max(128).regex(/^[A-Za-z0-9_.:@+-]+$/) }).parse(request.params);
+  const params = z.object({ id: Identifier }).parse(request.params);
   const resource = resources.get("call-files", params.id);
   if (!resource) throw Object.assign(new Error("Call-file resource not found"), { statusCode: 404 });
   const result = await helper.execute("asterisk.callfile.submit", { id: resource.id });
@@ -170,7 +243,7 @@ server.post("/v1/resources/compiler/rollback", async request => {
 });
 
 server.post("/v1/backups", async request => {
-  const body = z.object({ id: z.string().min(1).max(128).regex(/^[A-Za-z0-9_.:@+-]+$/) }).parse(request.body);
+  const body = z.object({ id: Identifier }).parse(request.body);
   const result = await helper.execute("freepbx.backup.start", body, 300_000);
   await audit.record({ actor: "local-admin", action: "backup.start", target: body.id, outcome: result.ok ? "allowed" : "failed", detail: { exitCode: result.exitCode } });
   return result;

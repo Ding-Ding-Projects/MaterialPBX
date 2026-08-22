@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "engines": { "node": ">=22.0.0" },
-  "scripts": { "build": "tsc -p tsconfig.json", "start": "node dist/server.js" },
+  "scripts": { "build": "node scripts/clean-build-output.mjs && tsc -p tsconfig.json && node scripts/generate-payload-manifest.mjs", "start": "node dist/server.js", "test:contract": "npm run build && node scripts/check-runtime-contract.mjs" },
   "dependencies": { "@materialpbx/protocol": "file:../../packages/protocol", "zod": "3.24.2" },
   "devDependencies": { "@types/node": "22.13.10", "typescript": "5.9.2" }
 }

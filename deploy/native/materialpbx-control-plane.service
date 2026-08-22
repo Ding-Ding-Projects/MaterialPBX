@@ -1,0 +1,61 @@
+[Unit]
+Description=MaterialPBX native control plane
+After=network-online.target materialpbx-privileged-helper.service freepbx.service asterisk.service mariadb.service
+Wants=network-online.target
+Requires=materialpbx-privileged-helper.service
+RequiresMountsFor=/opt/materialpbx/control-plane /var/lib/materialpbx/control-plane
+
+[Service]
+Type=simple
+User=materialpbx-control
+Group=materialpbx-control
+SupplementaryGroups=materialpbx-socket materialpbx-recordings
+EnvironmentFile=/etc/materialpbx/control-plane.env
+LoadCredential=admin-token:/etc/materialpbx/secrets/admin-token
+LoadCredential=ami-secret:/etc/materialpbx/secrets/ami-secret
+LoadCredential=ari-secret:/etc/materialpbx/secrets/ari-secret
+LoadCredential=freepbx-dsn:/etc/materialpbx/secrets/freepbx-dsn
+Environment=MATERIALPBX_ADMIN_TOKEN_FILE=%d/admin-token
+Environment=ASTERISK_AMI_SECRET_FILE=%d/ami-secret
+Environment=ASTERISK_ARI_PASSWORD_FILE=%d/ari-secret
+Environment=FREEPBX_DATABASE_DSN_FILE=%d/freepbx-dsn
+ExecStartPre=/usr/bin/test -s /opt/materialpbx/control-plane/dist/server.js
+ExecStartPre=/usr/bin/node --check /opt/materialpbx/control-plane/dist/server.js
+ExecStart=/usr/bin/node /opt/materialpbx/control-plane/dist/server.js
+Restart=on-failure
+RestartSec=3
+TimeoutStartSec=45
+TimeoutStopSec=30
+KillMode=control-group
+OOMPolicy=stop
+TasksMax=256
+MemoryHigh=384M
+MemoryMax=512M
+LimitNOFILE=8192
+LimitNPROC=512
+UMask=0027
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=/var/lib/materialpbx/control-plane
+
+[Install]
+WantedBy=multi-user.target

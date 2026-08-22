@@ -23,6 +23,9 @@ class Materialpbx extends Command
             ->addOption('operation', null, InputOption::VALUE_REQUIRED, 'sync or submit-call-file')
             ->addOption('kind', null, InputOption::VALUE_REQUIRED)
             ->addOption('id', null, InputOption::VALUE_REQUIRED)
+            ->addOption('request-snapshot', null, InputOption::VALUE_REQUIRED)
+            ->addOption('expected-sha256', null, InputOption::VALUE_REQUIRED)
+            ->addOption('expected-revision', null, InputOption::VALUE_REQUIRED)
             ->addOption('snapshot-id', null, InputOption::VALUE_REQUIRED)
             ->addOption('deleted', null, InputOption::VALUE_NONE);
     }
@@ -33,7 +36,22 @@ class Materialpbx extends Command
             $module = $this->FreePBX->Materialpbx;
             $operation = (string) $input->getOption('operation');
             if ($operation === 'sync') {
-                $result = $module->syncResource((string) $input->getOption('kind'), (string) $input->getOption('id'), (bool) $input->getOption('deleted'));
+                $revisionText = (string) $input->getOption('expected-revision');
+                if (!preg_match('/^[1-9][0-9]*$/D', $revisionText)) {
+                    throw new \InvalidArgumentException('Expected revision must be a positive integer');
+                }
+                $revision = filter_var($revisionText, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+                if ($revision === false) {
+                    throw new \InvalidArgumentException('Expected revision is outside the supported integer range');
+                }
+                $result = $module->syncResource(
+                    (string) $input->getOption('kind'),
+                    (string) $input->getOption('id'),
+                    (bool) $input->getOption('deleted'),
+                    (string) $input->getOption('request-snapshot'),
+                    (string) $input->getOption('expected-sha256'),
+                    $revision
+                );
             } elseif ($operation === 'submit-call-file') {
                 $result = $module->submitCallFile((string) $input->getOption('id'));
             } elseif ($operation === 'rollback-compiler') {

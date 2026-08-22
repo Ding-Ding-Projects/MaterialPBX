@@ -1,8 +1,10 @@
 import { createConnection } from "node:net";
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 import { readSecret } from "../lib/files.js";
 
 type AmiMessage = Record<string, string>;
+const AmiPingResponseSchema = z.object({ Response: z.literal("Success"), Ping: z.literal("Pong") }).passthrough();
 
 function encodeAmi(message: AmiMessage): string {
   return `${Object.entries(message).map(([key, value]) => `${key}: ${value}`).join("\r\n")}\r\n\r\n`;
@@ -17,6 +19,13 @@ function decodeAmi(block: string): AmiMessage {
 
 export class AmiAdapter {
   constructor(private readonly config: { host: string; port: number; username: string; secretFile: string }) {}
+
+  async probe(): Promise<void> {
+    const messages = await this.action("Ping", {}, 5_000);
+    if (!messages.some(message => AmiPingResponseSchema.safeParse(message).success)) {
+      throw new Error("AMI did not return its expected Ping response");
+    }
+  }
 
   async action(action: string, fields: AmiMessage = {}, timeoutMs = 10_000): Promise<AmiMessage[]> {
     if (!/^[A-Za-z][A-Za-z0-9]{0,63}$/.test(action)) throw new Error("Invalid AMI action name");

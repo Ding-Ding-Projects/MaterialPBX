@@ -14,6 +14,7 @@
 - [x] Add the Windows desktop lab shell and unsigned Squirrel packaging route.
 - [x] Add the landing and documentation site with an explicit non-runtime boundary.
 - [x] Give the public site a dedicated beginner-first landing composition with a visual call path, rich-control demonstration, complete feature map, verified download, and production deployment route.
+- [x] Replace the flat public card grid with an editorial WorldLens product story, interactive route studio, asymmetric beginner/hosted/paired/desktop journeys, grouped feature atlas, and explicit no-nagging commitment.
 - [x] Finish the public walkthrough with an exportable local planning checklist and installed-or-hosted continuation instead of a disconnected runtime dead end.
 - [x] Make the landing controls reactive, derive the Asterisk feature map from the page registry, use SVG icon paths, and preserve the call-flow topology on narrow layouts.
 - [x] Add a managed Sites/Cloudflare Worker build beside the GitHub Pages build.
@@ -23,10 +24,10 @@
 
 ## Verification and release
 
-- [ ] Run focused local tests after the ultra-speed pass is upgraded to the full verification workflow.
+- [x] Run the focused local site, installer, runtime/deployment, release-evidence, service-contract, PHP snapshot, shell-analysis, dependency-audit, build, and packaging checks after upgrading to the full verification workflow.
 - [ ] Capture every real built surface through the approved headless route.
 - [ ] Re-run public-site browser, responsive, keyboard, contrast, and visual checks when the required cheap headless route is available.
-- [x] Build an unsigned Squirrel installer locally; runtime/install verification remains pending.
+- [x] Build, uninstall, freshly install, launch, capture, and verify the unsigned Squirrel.Windows 0.1.1 installer locally.
 - [x] Publish and verify the first non-draft Windows release.
 - [x] Enable the live GitHub Pages deployment.
 
@@ -42,6 +43,9 @@
 - [ ] Resolve external HTTP/HTTPS publishing without disturbing the unrelated service already using ports 80 and 443.
 - [x] Load module 0.1.0 on FreePBX 17, enable it, and verify creation of all three migration tables through `FreePBX::Database()`.
 - [x] Compile a ring-group artifact with snapshots and prove single-use rollback restores its prior-null compiled state.
+- [x] Move first-boot credentials, generated database state, and the helper socket outside systemd's `/run` tmpfs; add resumable markers, bounded readiness, helper-runtime ordering, and an executable negative-regression contract.
+- [x] Add the guarded native Debian 12 amd64 production bootstrap, immutable service generations, hardened systemd services, authenticated readiness evidence, payload manifests, and transactional rollback.
+- [x] Build and digest-verify the complete offline native control-plane and privileged-helper payload archives.
 - [ ] Build and boot a fresh clean PBX container with the PATH-visible `fwconsole` link and corrected volume declarations.
 - [ ] Prove generated custom includes, a complete FreePBX reload, ring-group dialplan, disablement, deletion, and a real runtime call.
 - [ ] Verify cross-resource destination dispatch for all compiled feature subsets on a live FreePBX/Asterisk runtime.

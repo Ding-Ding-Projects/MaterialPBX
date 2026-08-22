@@ -22,45 +22,538 @@ jobs:
           node-version: 22.22.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm assets
-      - run: pnpm build
-      - run: pnpm package:windows
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
-      - name: Stage release files
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force release | Out-Null
-          Copy-Item apps/desktop/dist/squirrel-windows/squirrel-windows/* release/ -Force
-          Get-FileHash release/* -Algorithm SHA256 | ForEach-Object { "{0}  {1}" -f $_.Hash.ToLower(), $_.Path.Split([IO.Path]::DirectorySeparatorChar)[-1] } | Set-Content release/SHA256SUMS.txt
-      - name: Publish unique release
+
+      - name: Require a strictly newer installed version
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.ORG_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
-          $tag = "build-$env:GITHUB_RUN_NUMBER-$($env:GITHUB_SHA.Substring(0,7))"
-          $runJobs = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID/jobs" | ConvertFrom-Json
-          $startedAt = [DateTimeOffset]::Parse(($runJobs.jobs | Sort-Object started_at | Select-Object -First 1).started_at)
-          $notes = @"
-          # MaterialPBX $tag
+          New-Item -ItemType Directory -Force release-evidence | Out-Null
+          $candidate = (Get-Content apps/desktop/package.json -Raw | ConvertFrom-Json).version
+          if ($candidate -notmatch '^(\d+)\.(\d+)\.(\d+)$') {
+            throw "Desktop package version $candidate is not a three-part numeric version."
+          }
+          function Compare-VersionTriplet([string]$Left, [string]$Right) {
+            $leftParts = @($Left.Split('.') | ForEach-Object { [int64]$_ })
+            $rightParts = @($Right.Split('.') | ForEach-Object { [int64]$_ })
+            for ($index = 0; $index -lt 3; $index += 1) {
+              if ($leftParts[$index] -gt $rightParts[$index]) { return 1 }
+              if ($leftParts[$index] -lt $rightParts[$index]) { return -1 }
+            }
+            return 0
+          }
+          $releasePagesOutput = gh api --paginate --slurp "repos/$env:GITHUB_REPOSITORY/releases" 2>&1
+          $releasePagesExit = $LASTEXITCODE
+          $latestVersion = $null
+          $latestTag = $null
+          if ($releasePagesExit -ne 0) {
+            throw "Unable to enumerate public releases before comparing installed versions: $($releasePagesOutput | Out-String)"
+          }
+          $releasePages = ($releasePagesOutput | Out-String) | ConvertFrom-Json
+          $publishedPackages = @()
+          foreach ($page in @($releasePages)) {
+            foreach ($release in @($page)) {
+              if ($release.draft -or $release.prerelease) { continue }
+              foreach ($asset in @($release.assets)) {
+                if ($asset.name -match '^materialpbx-desktop-(\d+\.\d+\.\d+)-full[.]nupkg$') {
+                  $publishedPackages += [pscustomobject]@{ version = $Matches[1]; tag = $release.tag_name }
+                }
+              }
+            }
+          }
+          if ($publishedPackages.Count) {
+            $latestPackage = $publishedPackages | Sort-Object { [Version]$_.version } -Descending | Select-Object -First 1
+            $latestVersion = $latestPackage.version
+            $latestTag = $latestPackage.tag
+            if ((Compare-VersionTriplet $candidate $latestVersion) -le 0) {
+              throw "Candidate installed version $candidate is not strictly newer than latest published installed version $latestVersion."
+            }
+          }
+          [ordered]@{
+            schemaVersion = 1
+            candidateVersion = $candidate
+            latestPublishedVersion = $latestVersion
+            latestReleaseTag = $latestTag
+            comparison = if ($latestVersion) { 'strictly-newer' } else { 'first-release' }
+          } | ConvertTo-Json | Set-Content release-evidence/version-comparison.json
 
-          Windows Squirrel installer generated from commit ``$env:GITHUB_SHA``.
+      - name: Prepare an immutable installer icon reference
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_SHA -notmatch '^[0-9a-f]{40}$') {
+            throw "Release commit $env:GITHUB_SHA is not a full lowercase commit SHA."
+          }
+          $iconUrl = "https://raw.githubusercontent.com/Ding-Ding-Projects/MaterialPBX/$env:GITHUB_SHA/assets/generated/materialpbx.ico"
+          $sourceIcon = 'assets/generated/materialpbx.ico'
+          $temporaryIcon = Join-Path $env:RUNNER_TEMP "materialpbx-immutable-icon-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.ico"
+          try {
+            Invoke-WebRequest -Uri $iconUrl -UseBasicParsing -TimeoutSec 30 -MaximumRedirection 5 -OutFile $temporaryIcon
+            $iconItem = Get-Item -LiteralPath $temporaryIcon
+            if ($iconItem.Length -le 0 -or $iconItem.Length -gt 4MB) {
+              throw "The immutable public installer icon has an invalid size of $($iconItem.Length) bytes."
+            }
+            $expectedHash = (Get-FileHash -LiteralPath $sourceIcon -Algorithm SHA256).Hash.ToLowerInvariant()
+            $actualHash = (Get-FileHash -LiteralPath $temporaryIcon -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualHash -ne $expectedHash -or $iconItem.Length -ne (Get-Item -LiteralPath $sourceIcon).Length) {
+              throw "The immutable public installer icon differs from the exact release commit's packaged icon."
+            }
+            $desktopPackagePath = 'apps/desktop/package.json'
+            $desktopPackage = Get-Content $desktopPackagePath -Raw | ConvertFrom-Json
+            $desktopPackage.build.squirrelWindows.iconUrl = $iconUrl
+            $desktopPackage | ConvertTo-Json -Depth 32 | Set-Content $desktopPackagePath
+            $writtenIconUrl = (Get-Content $desktopPackagePath -Raw | ConvertFrom-Json).build.squirrelWindows.iconUrl
+            if ($writtenIconUrl -ne $iconUrl) { throw 'The transient immutable Squirrel icon URL was not written exactly.' }
+            [ordered]@{
+              schemaVersion = 1
+              commit = $env:GITHUB_SHA
+              url = $iconUrl
+              bytes = $iconItem.Length
+              sha256 = $actualHash
+              anonymousFetch = 'verified'
+            } | ConvertTo-Json | Set-Content release-evidence/immutable-installer-icon.json
+          } finally {
+            if (Test-Path -LiteralPath $temporaryIcon) { Remove-Item -LiteralPath $temporaryIcon -Force }
+          }
+
+      - name: Build and verify the supported unsigned installer path
+        shell: cmd
+        run: call "%GITHUB_WORKSPACE%\build-installer.bat" /s
+
+      - name: Build complete native-host service payloads without a type-check gate
+        shell: pwsh
+        run: |
+          $manifestPaths = @(
+            'packages/protocol/package.json',
+            'services/control-plane/package.json',
+            'services/privileged-helper/package.json'
+          )
+          $originals = @{}
+          $utf8 = [Text.UTF8Encoding]::new($false)
+          try {
+            foreach ($manifestPath in $manifestPaths) {
+              $originals[$manifestPath] = [IO.File]::ReadAllText((Resolve-Path $manifestPath))
+              $manifest = $originals[$manifestPath] | ConvertFrom-Json
+              if ($manifest.scripts.build -notmatch '(^|&&\s*)tsc -p ') {
+                throw "Native build script $manifestPath is not the reviewed emitting TypeScript compiler route."
+              }
+              $manifest.scripts.build = $manifest.scripts.build -replace '(^|&&\s*)tsc -p ', '${1}tsc --noCheck -p '
+              [IO.File]::WriteAllText((Resolve-Path $manifestPath), ($manifest | ConvertTo-Json -Depth 32) + "`n", $utf8)
+            }
+            & bash.exe ./deploy/native/build-service-payloads.sh | Out-Host
+            if ($LASTEXITCODE -ne 0) { throw "Native service payload builder failed with exit code $LASTEXITCODE." }
+          } finally {
+            foreach ($manifestPath in $originals.Keys) {
+              [IO.File]::WriteAllText((Resolve-Path $manifestPath), $originals[$manifestPath], $utf8)
+            }
+          }
+
+      - name: Count the exact release commit
+        shell: pwsh
+        run: |
+          node scripts/count-lines.mjs --revision $env:GITHUB_SHA --json-output release-evidence/line-count.json --markdown-output release-evidence/line-count.md
+          $count = Get-Content release-evidence/line-count.json -Raw | ConvertFrom-Json
+          if ($count.revision -ne $env:GITHUB_SHA) {
+            throw "Line counter measured $($count.revision), expected $env:GITHUB_SHA."
+          }
+
+      - name: Verify canonical dim-sum provenance without staging a copy
+        shell: pwsh
+        run: |
+          $temporaryDishDirectory = Join-Path $env:RUNNER_TEMP "materialpbx-dish-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          try {
+            node scripts/prepare-dim-sum-release-asset.mjs --asset-output-dir "$temporaryDishDirectory" --metadata-output-dir release-evidence
+            $metadata = Get-Content release-evidence/dim-sum.json -Raw | ConvertFrom-Json
+            $temporaryImage = Join-Path $temporaryDishDirectory $metadata.asset.name
+            if (-not (Test-Path -LiteralPath $temporaryImage -PathType Leaf)) {
+              throw 'The canonical image verifier did not produce its temporary verification file.'
+            }
+            $actualHash = (Get-FileHash -LiteralPath $temporaryImage -Algorithm SHA256).Hash.ToLowerInvariant()
+            $actualBytes = (Get-Item -LiteralPath $temporaryImage).Length
+            if ($actualHash -ne $metadata.asset.sha256 -or $actualBytes -ne $metadata.asset.bytes) {
+              throw 'The anonymously downloaded canonical image differs from its reviewed metadata.'
+            }
+            if (([Uri]$metadata.asset.url).Scheme -ne 'https') { throw 'The canonical image URL is not HTTPS.' }
+            @"
+          ## Release dish
+
+          $($metadata.dish.name.en) · $($metadata.dish.name.zhHant)
+
+          - Catalog revision: [``$($metadata.source.catalogCommit)``](https://github.com/$($metadata.source.repository)/commit/$($metadata.source.catalogCommit))
+          - Published catalog release: [``$($metadata.source.releaseTag)``]($($metadata.source.releaseUrl))
+          - Canonical public image (not copied into this release): [``$($metadata.asset.name)``]($($metadata.asset.url))
+          - Canonical image evidence: $($metadata.asset.bytes.ToString('N0', [Globalization.CultureInfo]::GetCultureInfo('en-US'))) bytes; SHA-256 ``$($metadata.asset.sha256)``
+          "@ | Set-Content release-evidence/dim-sum.md
+          } finally {
+            if (Test-Path -LiteralPath $temporaryDishDirectory) {
+              Remove-Item -LiteralPath $temporaryDishDirectory -Recurse -Force
+            }
+          }
+          if (Test-Path -LiteralPath $temporaryDishDirectory) {
+            throw 'The temporary canonical image directory was not removed.'
+          }
+
+      - name: Stage exact installer and native-host release assets
+        shell: pwsh
+        run: |
+          $version = (Get-Content apps/desktop/package.json -Raw | ConvertFrom-Json).version
+          $squirrelOutput = 'apps/desktop/dist/squirrel-windows/squirrel-windows'
+          $requiredSquirrelFiles = @(
+            "MaterialPBX-$version-x64-Setup.exe",
+            'RELEASES',
+            "materialpbx-desktop-$version-full.nupkg"
+          )
+          New-Item -ItemType Directory -Force release | Out-Null
+          foreach ($name in $requiredSquirrelFiles) {
+            $source = Join-Path $squirrelOutput $name
+            if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+              throw "The supported installer build did not produce $source."
+            }
+            Copy-Item -LiteralPath $source -Destination (Join-Path release $name) -Force
+          }
+
+          $payloadRoot = 'dist/native-services'
+          foreach ($name in @('control-plane.tar.gz', 'privileged-helper.tar.gz', 'manifest.sha256')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $payloadRoot $name) -PathType Leaf)) {
+              throw "The native payload builder did not produce $name."
+            }
+          }
+          foreach ($line in Get-Content (Join-Path $payloadRoot 'manifest.sha256')) {
+            if ($line -notmatch '^([0-9a-f]{64})  (control-plane[.]tar[.]gz|privileged-helper[.]tar[.]gz)$') {
+              throw "The native payload manifest contains an unexpected line: $line"
+            }
+            $payloadPath = Join-Path $payloadRoot $Matches[2]
+            if ((Get-FileHash -LiteralPath $payloadPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $Matches[1]) {
+              throw "The native payload $($Matches[2]) differs from manifest.sha256."
+            }
+          }
+
+          $bundleStage = Join-Path $env:RUNNER_TEMP "materialpbx-native-host-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $bundlePath = Join-Path release "MaterialPBX-$version-native-host.zip"
+          try {
+            New-Item -ItemType Directory -Force (Join-Path $bundleStage 'services') | Out-Null
+            New-Item -ItemType Directory -Force (Join-Path $bundleStage 'dist') | Out-Null
+            Copy-Item -LiteralPath deploy -Destination (Join-Path $bundleStage 'deploy') -Recurse
+            Copy-Item -LiteralPath services/freepbx-module -Destination (Join-Path $bundleStage 'services/freepbx-module') -Recurse
+            Copy-Item -LiteralPath $payloadRoot -Destination (Join-Path $bundleStage 'dist/native-services') -Recurse
+            $bundleItems = @(Get-ChildItem -LiteralPath $bundleStage | ForEach-Object FullName)
+            Compress-Archive -LiteralPath $bundleItems -DestinationPath $bundlePath -CompressionLevel Optimal
+          } finally {
+            if (Test-Path -LiteralPath $bundleStage) { Remove-Item -LiteralPath $bundleStage -Recurse -Force }
+          }
+
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $bundlePath))
+          try {
+            $entries = @($archive.Entries | ForEach-Object { $_.FullName.Replace('\', '/') })
+            foreach ($requiredEntry in @(
+              'deploy/production-bootstrap.sh',
+              'deploy/native/materialpbx-control-plane.service',
+              'deploy/native/materialpbx-privileged-helper.service',
+              'deploy/native/materialpbx-prepare-helper-runtime.sh',
+              'deploy/pbx/materialpbx-configure-integrations.sh',
+              'deploy/pbx/materialpbx-helper-probe.mjs',
+              'services/freepbx-module/module.xml',
+              'dist/native-services/control-plane.tar.gz',
+              'dist/native-services/privileged-helper.tar.gz',
+              'dist/native-services/manifest.sha256'
+            )) {
+              if ($entries -notcontains $requiredEntry) { throw "The native-host bundle is missing $requiredEntry." }
+            }
+          } finally {
+            $archive.Dispose()
+          }
+
+          $packagePath = Join-Path release "materialpbx-desktop-$version-full.nupkg"
+          $immutableIconEvidence = Get-Content release-evidence/immutable-installer-icon.json -Raw | ConvertFrom-Json
+          $postBuildIcon = Get-Item -LiteralPath assets/generated/materialpbx.ico
+          $postBuildIconHash = (Get-FileHash -LiteralPath $postBuildIcon.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($postBuildIcon.Length -ne $immutableIconEvidence.bytes -or $postBuildIconHash -ne $immutableIconEvidence.sha256) {
+            throw 'The installer build changed the generated icon after immutable public-icon verification.'
+          }
+          $packageArchive = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $packagePath))
+          try {
+            $nuspecEntries = @($packageArchive.Entries | Where-Object FullName -like '*.nuspec')
+            if ($nuspecEntries.Count -ne 1) { throw 'The full Squirrel package does not contain exactly one nuspec.' }
+            $reader = [IO.StreamReader]::new($nuspecEntries[0].Open())
+            try { [xml]$nuspec = $reader.ReadToEnd() } finally { $reader.Dispose() }
+            $namespace = [Xml.XmlNamespaceManager]::new($nuspec.NameTable)
+            $namespace.AddNamespace('n', $nuspec.DocumentElement.NamespaceURI)
+            $iconNodes = @($nuspec.SelectNodes('/n:package/n:metadata/n:iconUrl', $namespace))
+            $expectedIconUrl = "https://raw.githubusercontent.com/Ding-Ding-Projects/MaterialPBX/$env:GITHUB_SHA/assets/generated/materialpbx.ico"
+            if ($iconNodes.Count -ne 1 -or $iconNodes[0].InnerText -ne $expectedIconUrl) {
+              throw 'The packaged Squirrel nuspec does not contain the verified immutable icon URL.'
+            }
+            [ordered]@{
+              schemaVersion = 1
+              package = (Split-Path $packagePath -Leaf)
+              iconUrl = $iconNodes[0].InnerText
+              commit = $env:GITHUB_SHA
+            } | ConvertTo-Json | Set-Content release-evidence/packaged-installer-icon.json
+          } finally {
+            $packageArchive.Dispose()
+          }
+
+          Get-ChildItem release -File |
+            Where-Object Name -ne 'SHA256SUMS.txt' |
+            Get-FileHash -Algorithm SHA256 |
+            ForEach-Object { "{0}  {1}" -f $_.Hash.ToLowerInvariant(), $_.Path.Split([IO.Path]::DirectorySeparatorChar)[-1] } |
+            Set-Content release/SHA256SUMS.txt
+          $forbiddenImages = @(Get-ChildItem release -File | Where-Object Extension -match '^[.](?:gif|jpe?g|png|webp)$')
+          if ($forbiddenImages.Count) {
+            throw "Consumer releases must not attach copied dim-sum images: $($forbiddenImages.Name -join ', ')."
+          }
+          $manifest = @(
+            Get-ChildItem release -File |
+              Sort-Object Name |
+              ForEach-Object {
+                [ordered]@{
+                  name = $_.Name
+                  bytes = $_.Length
+                  sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                }
+              }
+          )
+          $manifest | ConvertTo-Json -Depth 4 | Set-Content release-evidence/release-assets.json
+
+      - name: Publish and verify one immutable release
+        id: publish
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.ORG_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $publicationState = [ordered]@{
+            schemaVersion = 1
+            state = 'started'
+            runId = $env:GITHUB_RUN_ID
+            runAttempt = $env:GITHUB_RUN_ATTEMPT
+            commit = $env:GITHUB_SHA
+            tag = $null
+            releaseUrl = $null
+            tagCommit = $null
+            downloadedAssetVerification = 'not-started'
+            timingPasses = 0
+            completedAt = $null
+            finalNotesVerifiedAt = $null
+            errorType = $null
+            errorMessage = $null
+          }
+          function Save-PublicationState {
+            $publicationState | ConvertTo-Json -Depth 8 | Set-Content release-evidence/publication-state.json
+          }
+          function Normalize-Notes([string]$Text) {
+            return (($Text -replace "`r`n", "`n") -replace "`r", "`n").TrimEnd()
+          }
+          function Format-WorkflowDuration([TimeSpan]$Duration) {
+            return '{0:00}:{1:00}:{2:00}' -f [Math]::Floor($Duration.TotalHours), $Duration.Minutes, $Duration.Seconds
+          }
+          function Get-PeeledTagCommit([string]$Tag) {
+            $referenceOutput = gh api "repos/$env:GITHUB_REPOSITORY/git/ref/tags/$Tag"
+            if ($LASTEXITCODE -ne 0) { throw "Unable to read refs/tags/$Tag after publication." }
+            $reference = ($referenceOutput | Out-String) | ConvertFrom-Json
+            $objectType = $reference.object.type
+            $objectSha = $reference.object.sha
+            for ($depth = 0; $depth -lt 5; $depth += 1) {
+              if ($objectType -eq 'commit') { return $objectSha }
+              if ($objectType -ne 'tag') { throw "Tag $Tag points to unsupported Git object type $objectType." }
+              $tagOutput = gh api "repos/$env:GITHUB_REPOSITORY/git/tags/$objectSha"
+              if ($LASTEXITCODE -ne 0) { throw "Unable to peel tag object $objectSha." }
+              $tagObject = ($tagOutput | Out-String) | ConvertFrom-Json
+              $objectType = $tagObject.object.type
+              $objectSha = $tagObject.object.sha
+            }
+            throw "Tag $Tag exceeded the bounded peel depth."
+          }
+          function Get-PublicRelease([string]$Tag) {
+            $releaseOutput = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$Tag"
+            if ($LASTEXITCODE -ne 0) { throw "Unable to read published release $Tag." }
+            return (($releaseOutput | Out-String) | ConvertFrom-Json)
+          }
+          function Assert-ReleaseCore($Release, [string]$Tag, $ExpectedAssets) {
+            if ($Release.tag_name -ne $Tag) { throw "Published release returned tag $($Release.tag_name), expected $Tag." }
+            if ($Release.draft -or $Release.prerelease) { throw "Published release $Tag is draft or prerelease." }
+            if ($Release.target_commitish -ne $env:GITHUB_SHA) { throw "Published release target is $($Release.target_commitish), expected $env:GITHUB_SHA." }
+            if (-not $Release.published_at) { throw "Published release $Tag has no publication timestamp." }
+            $peeledCommit = Get-PeeledTagCommit $Tag
+            if ($peeledCommit -ne $env:GITHUB_SHA) { throw "Published tag $Tag peels to $peeledCommit, expected $env:GITHUB_SHA." }
+            $publicationState.tagCommit = $peeledCommit
+            $publishedAssets = @($Release.assets | Sort-Object name)
+            if (($ExpectedAssets.name -join "`n") -ne (($publishedAssets | ForEach-Object name) -join "`n")) {
+              throw 'Published release assets differ from the staged release files.'
+            }
+            for ($index = 0; $index -lt $ExpectedAssets.Count; $index += 1) {
+              if ([int64]$publishedAssets[$index].size -ne [int64]$ExpectedAssets[$index].bytes) {
+                throw "Published asset $($ExpectedAssets[$index].name) reports a different byte size from staging."
+              }
+              if (-not $publishedAssets[$index].browser_download_url) {
+                throw "Published asset $($ExpectedAssets[$index].name) has no download URL."
+              }
+            }
+          }
+          function New-ReleaseNotes([string]$Tag, [DateTimeOffset]$StartedAt, [DateTimeOffset]$CompletedAt, [string]$LineCount, [string]$DimSum) {
+            $duration = $CompletedAt - $StartedAt
+            if ($duration.Ticks -lt 0) { throw 'Workflow completion precedes workflow start.' }
+            return @"
+          # MaterialPBX $Tag
+
+          Windows Squirrel installer and complete native-host deployment bundle generated from commit ``$env:GITHUB_SHA``.
 
           > [!WARNING]
           > The installer is intentionally unsigned and may show an unknown-publisher or SmartScreen warning.
 
           This workflow builds and packages only. It does not run tests, lint, type checking, accessibility checks, security checks, smoke checks, or screenshots.
 
-          "@
-          gh release create $tag release/* --title "MaterialPBX $tag" --notes $notes --target $env:GITHUB_SHA --latest
-          $completedAt = [DateTimeOffset]::UtcNow
-          $duration = $completedAt - $startedAt
-          $timing = @"
+          $LineCount
+
+          $DimSum
 
           ## Workflow timing
 
-          - Workflow started: ``$($startedAt.UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ssZ'))``
-          - Workflow completed: ``$($completedAt.UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ssZ'))``
-          - Workflow duration: ``$('{0:00}:{1:00}:{2:00}' -f [Math]::Floor($duration.TotalHours), $duration.Minutes, $duration.Seconds)``
+          - Workflow started: ``$($StartedAt.UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ssZ'))``
+          - Workflow completed: ``$($CompletedAt.UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ssZ'))``
+          - Workflow duration: ``$(Format-WorkflowDuration $duration)``
           "@
-          gh release edit $tag --notes ($notes + $timing)
+          }
+
+          try {
+            $tag = "build-$env:GITHUB_RUN_NUMBER-$env:GITHUB_RUN_ATTEMPT-$($env:GITHUB_SHA.Substring(0,7))"
+            $publicationState.tag = $tag
+            Save-PublicationState
+            $existingTag = git ls-remote --tags origin "refs/tags/$tag" 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "Unable to prove refs/tags/$tag is absent from origin: $($existingTag | Out-String)" }
+            if (($existingTag | Out-String).Trim()) { throw "Tag ref refs/tags/$tag already exists; refusing to overwrite or recycle it." }
+            $existingRelease = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$tag" 2>&1
+            $existingReleaseExit = $LASTEXITCODE
+            if ($existingReleaseExit -eq 0) { throw "Release $tag already exists; refusing to overwrite or recycle it." }
+            if (($existingRelease | Out-String) -notmatch 'HTTP 404') {
+              throw "Unable to prove release $tag is unused: $($existingRelease | Out-String)"
+            }
+
+            $runJobsOutput = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID/jobs"
+            if ($LASTEXITCODE -ne 0) { throw 'Unable to read the workflow job start time.' }
+            $runJobs = ($runJobsOutput | Out-String) | ConvertFrom-Json
+            $firstJob = $runJobs.jobs | Where-Object started_at | Sort-Object started_at | Select-Object -First 1
+            if (-not $firstJob) { throw 'GitHub did not report a job start timestamp.' }
+            $startedAt = [DateTimeOffset]::Parse($firstJob.started_at)
+            $lineCount = Get-Content release-evidence/line-count.md -Raw
+            $dimSum = Get-Content release-evidence/dim-sum.md -Raw
+            $expectedAssets = @(Get-Content release-evidence/release-assets.json -Raw | ConvertFrom-Json | Sort-Object name)
+            if (-not $expectedAssets.Count) { throw 'The staged release manifest is empty.' }
+            if ($expectedAssets.name -match '[.](?:gif|jpe?g|png|webp)$') { throw 'The consumer release manifest contains a copied image.' }
+
+            @"
+          # MaterialPBX $tag
+
+          Release publication verification is in progress for commit ``$env:GITHUB_SHA``.
+
+          > [!WARNING]
+          > The installer is intentionally unsigned and may show an unknown-publisher or SmartScreen warning.
+          "@ | Set-Content release-evidence/release-notes.md
+            $releaseAssetPaths = @(Get-ChildItem release -File | Sort-Object Name | ForEach-Object FullName)
+            gh release create $tag @releaseAssetPaths --repo $env:GITHUB_REPOSITORY --title "MaterialPBX $tag" --notes-file release-evidence/release-notes.md --target $env:GITHUB_SHA --latest
+            if ($LASTEXITCODE -ne 0) { throw "GitHub release creation failed for $tag." }
+
+            $release = Get-PublicRelease $tag
+            Assert-ReleaseCore $release $tag $expectedAssets
+            $publicationState.releaseUrl = $release.html_url
+            $downloadDirectory = Join-Path $env:RUNNER_TEMP "materialpbx-release-download-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+            try {
+              New-Item -ItemType Directory -Force $downloadDirectory | Out-Null
+              gh release download $tag --repo $env:GITHUB_REPOSITORY --dir $downloadDirectory
+              if ($LASTEXITCODE -ne 0) { throw "Downloading published assets for $tag failed." }
+              $downloaded = @(Get-ChildItem $downloadDirectory -File | Sort-Object Name)
+              if (($expectedAssets.name -join "`n") -ne (($downloaded | ForEach-Object Name) -join "`n")) {
+                throw 'Downloaded release assets differ from the staged manifest.'
+              }
+              for ($index = 0; $index -lt $expectedAssets.Count; $index += 1) {
+                $downloadedHash = (Get-FileHash -LiteralPath $downloaded[$index].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                if ($downloaded[$index].Length -ne [int64]$expectedAssets[$index].bytes -or $downloadedHash -ne $expectedAssets[$index].sha256) {
+                  throw "Downloaded release asset $($expectedAssets[$index].name) differs byte-for-byte from staging."
+                }
+              }
+              $publicationState.downloadedAssetVerification = 'verified'
+            } finally {
+              if (Test-Path -LiteralPath $downloadDirectory) { Remove-Item -LiteralPath $downloadDirectory -Recurse -Force }
+            }
+
+            $firstPassCandidate = [DateTimeOffset]::UtcNow
+            $firstPassNotes = New-ReleaseNotes $tag $startedAt $firstPassCandidate $lineCount $dimSum
+            $firstPassNotes | Set-Content release-evidence/release-notes.md
+            gh release edit $tag --repo $env:GITHUB_REPOSITORY --notes-file release-evidence/release-notes.md
+            if ($LASTEXITCODE -ne 0) { throw "GitHub release notes update failed for $tag on timing pass 1." }
+            $firstPassRelease = Get-PublicRelease $tag
+            Assert-ReleaseCore $firstPassRelease $tag $expectedAssets
+            if ((Normalize-Notes $firstPassRelease.body) -ne (Normalize-Notes $firstPassNotes)) {
+              throw 'Published release notes differ from the first timing-pass notes.'
+            }
+
+            $completedAt = [DateTimeOffset]::UtcNow
+            $finalNotes = New-ReleaseNotes $tag $startedAt $completedAt $lineCount $dimSum
+            $finalNotes | Set-Content release-evidence/release-notes.md
+            gh release edit $tag --repo $env:GITHUB_REPOSITORY --notes-file release-evidence/release-notes.md
+            if ($LASTEXITCODE -ne 0) { throw "GitHub release notes update failed for $tag on timing pass 2." }
+            $finalRelease = Get-PublicRelease $tag
+            Assert-ReleaseCore $finalRelease $tag $expectedAssets
+            if ((Normalize-Notes $finalRelease.body) -ne (Normalize-Notes $finalNotes)) {
+              throw 'Published release notes differ from the final timing-pass notes.'
+            }
+            $publicationState.timingPasses = 2
+            $publicationState.completedAt = $completedAt.ToString('o')
+            $publicationState.finalNotesVerifiedAt = [DateTimeOffset]::UtcNow.ToString('o')
+            $publicationState.state = 'verified'
+            Save-PublicationState
+          } catch {
+            $publicationState.state = 'failed'
+            $publicationState.errorType = $_.Exception.GetType().FullName
+            $publicationState.errorMessage = $_.Exception.Message
+            Save-PublicationState
+            throw
+          } finally {
+            Save-PublicationState
+          }
+
+      - name: Collect safe terminal workflow diagnostics
+        if: ${{ always() }}
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force diagnostics | Out-Null
+          [ordered]@{
+            schemaVersion = 1
+            runId = $env:GITHUB_RUN_ID
+            runAttempt = $env:GITHUB_RUN_ATTEMPT
+            commit = $env:GITHUB_SHA
+            repository = $env:GITHUB_REPOSITORY
+            runnerOS = $env:RUNNER_OS
+            runnerArchitecture = $env:RUNNER_ARCH
+            publishOutcome = '${{ steps.publish.outcome }}'
+            publishConclusion = '${{ steps.publish.conclusion }}'
+            terminalPublicationState = '${{ job.status }}'
+            publicationStateRecordPresent = Test-Path -LiteralPath release-evidence/publication-state.json
+          } | ConvertTo-Json | Set-Content diagnostics/workflow-context.json
+          if (Test-Path release) {
+            Get-ChildItem release -File |
+              Sort-Object Name |
+              ForEach-Object {
+                [ordered]@{
+                  name = $_.Name
+                  bytes = $_.Length
+                  sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                }
+              } |
+              ConvertTo-Json -Depth 4 |
+              Set-Content diagnostics/release-files.json
+          }
+
+      - name: Upload safe terminal build and release evidence
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: materialpbx-release-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            release/**
+            release-evidence/**
+            diagnostics/**
+          if-no-files-found: warn
+          retention-days: 14

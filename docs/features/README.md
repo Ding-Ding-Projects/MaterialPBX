@@ -35,5 +35,5 @@ Every feature has its own article. The product surfaces, desktop lab, and public
 - [Status and notifications](./status-notifications.md)
 - [One-click hosting](./deployment.md)
 - [Windows desktop lab](./desktop.md)
+- [Release evidence](./release-evidence.md)
 - [Landing and documentation site](./site.md)
-

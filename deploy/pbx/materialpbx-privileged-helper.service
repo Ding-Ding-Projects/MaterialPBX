@@ -1,29 +1,41 @@
 [Unit]
 Description=MaterialPBX bounded privileged helper
 After=freepbx.service asterisk.service
-RequiresMountsFor=/opt/materialpbx-helper /run/materialpbx
+RequiresMountsFor=/opt/materialpbx-helper /var/lib/materialpbx-helper
 
 [Service]
 Type=simple
+User=root
+Group=root
+ExecStartPre=/usr/bin/test -s /opt/materialpbx-helper/dist/server.js
 ExecStart=/usr/bin/node /opt/materialpbx-helper/dist/server.js
-Environment=PRIVILEGED_HELPER_SOCKET=/run/materialpbx/privileged.sock
+Environment=PRIVILEGED_HELPER_SOCKET=/var/lib/materialpbx-helper/privileged.sock
+# The PBX container verifies that GID 991 is the dedicated materialpbx-socket
+# group before the service starts. The control-plane container uses the same GID.
 Environment=MATERIALPBX_SOCKET_GID=991
 Restart=on-failure
 RestartSec=3
-RuntimeDirectory=materialpbx
-RuntimeDirectoryMode=0750
 UMask=0027
 NoNewPrivileges=yes
 PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
 ProtectHome=yes
+ProtectHostname=yes
+ProtectClock=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectProc=invisible
+ProcSubset=pid
 RestrictSUIDSGID=yes
 RestrictRealtime=yes
 LockPersonality=yes
 SystemCallArchitectures=native
-ReadWritePaths=/etc/asterisk /var/lib/asterisk /var/spool/asterisk /var/lib/freepbx /var/log/asterisk /var/www/html/admin/modules/materialpbx /run/materialpbx
+ReadOnlyPaths=/opt/materialpbx-helper /var/www/html/admin/modules/materialpbx
+ReadWritePaths=/etc/asterisk /var/lib/asterisk /var/spool/asterisk /var/lib/freepbx /var/log/asterisk /var/log/freepbx /var/lib/materialpbx-helper /run/asterisk /run/lock
+InaccessiblePaths=-/etc/materialpbx/secrets-input -/var/lib/materialpbx/control-plane
 
 [Install]
 WantedBy=multi-user.target

@@ -23,7 +23,11 @@ Credentials stay outside renderer storage, logs, exports, history, screenshots, 
 
 ## Verification
 
-This initial ultra-speed implementation was built without tests, lint, type checking, accessibility suites, security suites, smoke checks, or screenshots. The interface labels the disconnected state and does not claim live PBX verification.
+The 0.1.1 candidate was built through `build-installer.bat /s`. Its installer contract passed 73 required checks and all five deliberate negative regressions. The prior candidate was uninstalled through its registered Squirrel updater, the rebuilt Setup executable completed with exit code 0, the installed registry identity reported MaterialPBX 0.1.1, and the installed executable was present at the registered application location. The Setup executable, updater, and installed application all report `NotSigned`, as required by the project's permanent no-signing policy.
+
+The installed application was launched on an approved named hidden desktop. The resolved application window belonged to the recorded installed process, used class `Chrome_WidgetWin_1`, had the title `MaterialPBX Desktop Lab`, measured 2220×1410 at 150% display scale, and rendered the expected disconnected control center. The capture proves that the newly installed executable starts and paints this state. It does not prove a live PBX connection, keyboard-only operation, every surface, automatic-update installation, or production telephony behavior.
+
+![Freshly installed MaterialPBX 0.1.1 desktop application showing the disconnected control center, guided setup action, navigation, and empty live-data cards.](../screenshots/installer-fresh-launch-0.1.1.png)
 
 ## Suggested articles
 
@@ -31,4 +35,3 @@ This initial ultra-speed implementation was built without tests, lint, type chec
 - [Security](./security.md)
 - [Live operations](./observability.md)
 - [One-click hosting](./deployment.md)
-

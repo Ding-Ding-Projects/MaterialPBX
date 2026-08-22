@@ -4,6 +4,8 @@
 
 Every surface supports language, tone, themes, density, font, color, attention accommodations, keyboard use, screen readers, and reduced motion.
 
+The public product story consumes WorldLens theme roles for its hero, route studio, editorial cards, control playground, feature atlas, evidence ribbon, and download panel. It adds product composition without copying the WorldLens design-system package. The visitor's **Reduce motion** setting now applies a root presentation class in addition to the operating-system preference; both paths freeze nonessential motion while retaining text, shape, and state.
+
 The guided view presents validated pickers, switches, ranges, and clear suggested defaults. The expert view exposes the underlying Asterisk and FreePBX concepts without making raw configuration text the only path.
 
 ## Configuration
@@ -23,7 +25,7 @@ Credentials stay outside renderer storage, logs, exports, history, screenshots, 
 
 ## Verification
 
-This initial ultra-speed implementation was built without tests, lint, type checking, accessibility suites, security suites, smoke checks, or screenshots. The interface labels the disconnected state and does not claim live PBX verification.
+Both public production builds compiled the new responsive styles. Source checks protect the visitor-controlled reduced-motion class and the narrow single-column product story. Runtime contrast, keyboard, screen-reader, larger-text, and visual checks remain pending because source compilation is not rendered evidence.
 
 ## Suggested articles
 
@@ -31,4 +33,3 @@ This initial ultra-speed implementation was built without tests, lint, type chec
 - [Security](./security.md)
 - [Live operations](./observability.md)
 - [One-click hosting](./deployment.md)
-
