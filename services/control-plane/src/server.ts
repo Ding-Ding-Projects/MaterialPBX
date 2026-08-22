@@ -89,6 +89,7 @@ server.get("/v1/system/status", async () => {
   return { identity: federation.identity(), capabilities, warnings, adapters: { privilegedHelper: !helperError, cdrDatabase: recordsAvailable, ami: "runtime-probed", ari: "runtime-probed" } };
 });
 server.get("/v1/system/capabilities", async () => freepbx.capabilities());
+server.get("/v1/system/capability-registry", async () => freepbx.capabilities());
 server.get("/metrics", async (_request, reply) => reply.type("text/plain; version=0.0.4").send(metrics.render()));
 
 server.get("/v1/resources", async request => {

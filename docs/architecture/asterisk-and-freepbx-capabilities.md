@@ -2,6 +2,8 @@
 
 MaterialPBX treats Asterisk as the real-time communications engine and FreePBX as the supported configuration and module lifecycle. The control plane exposes capabilities only when the required adapter and local component are available.
 
+The capability registry preserves five distinct states: installed, configured, running, unavailable, and unknown. It attaches normalized evidence and a human-readable reason to each state. Probe failure degrades individual entries to unknown rather than silently converting missing data into false.
+
 | Area | Control-plane model | Runtime boundary | Current limitation |
 | --- | --- | --- | --- |
 | Extensions, users, devices | Versioned desired resources | FreePBX bridge and reload | Resource-specific field compilation remains intentionally narrow. |
@@ -35,3 +37,5 @@ Feature-rich telephony often fails because a screen assumes that installed softw
 - The privileged helper exists because the web process must not receive a general-purpose shell or Asterisk CLI.
 
 No adapter accepts arbitrary executable text. Adding another Asterisk capability requires a schema, exact allowlisted operation, bounded timeout/output, audit behavior, failure semantics, and documentation before it is exposed.
+
+The authenticated registry is available at `GET /v1/system/capability-registry`. Its evidence is deliberately summarized so credentials and raw configuration never cross the privileged-helper boundary.

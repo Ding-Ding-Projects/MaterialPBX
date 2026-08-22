@@ -1,4 +1,4 @@
-import type { ManagedResource } from "@materialpbx/protocol";
+import { CapabilityRegistrySchema, type ManagedResource } from "@materialpbx/protocol";
 import { PrivilegedHelperClient } from "./privileged.js";
 
 export interface ApplyResult {
@@ -13,7 +13,7 @@ export class FreePbxAdapter {
   async capabilities() {
     const report = await this.helper.execute("system.capabilities");
     if (!report.ok) throw new Error(report.error ?? (report.stderr || "Capability discovery failed"));
-    return JSON.parse(report.stdout) as Record<string, unknown>;
+    return CapabilityRegistrySchema.parse(JSON.parse(report.stdout));
   }
 
   async apply(resource: ManagedResource): Promise<ApplyResult> {
