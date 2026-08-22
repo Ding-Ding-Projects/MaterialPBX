@@ -29,5 +29,6 @@ export const FreePbxApplicationPlanSchema = z.object({
 });
 export type FreePbxApplicationPlan = z.infer<typeof FreePbxApplicationPlanSchema>;
 
-export const FreePbxApplicationResultSchema = z.object({ plan: FreePbxApplicationPlanSchema, applied: z.boolean(), reloaded: z.boolean(), partialFailure: z.boolean(), warning: z.string().max(2048).nullable() });
+export const FreePbxCompilationSchema = z.object({ status: z.enum(["compiled", "unsupported", "failed"]), compiler: z.string().max(128).nullable(), reason: z.string().min(1).max(1024), snapshotId: z.string().uuid().nullable(), diff: z.array(z.object({ operation: z.enum(["create", "replace", "remove", "unchanged"]), target: z.string().max(256), summary: z.string().max(512) })).max(32) });
+export const FreePbxApplicationResultSchema = z.object({ plan: FreePbxApplicationPlanSchema, storedDesired: z.boolean(), compilation: FreePbxCompilationSchema, applied: z.boolean(), reloaded: z.boolean(), runtimeVerification: z.literal("pending"), partialFailure: z.boolean(), rollback: z.object({ attempted: z.boolean(), succeeded: z.boolean().nullable(), snapshotId: z.string().uuid().nullable(), reason: z.string().max(1024).nullable() }), warning: z.string().max(2048).nullable() });
 export type FreePbxApplicationResult = z.infer<typeof FreePbxApplicationResultSchema>;

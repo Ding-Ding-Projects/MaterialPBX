@@ -18,6 +18,7 @@ export type PrivilegedOperation =
   | "fwconsole.status"
   | "freepbx.application.apply"
   | "freepbx.application.remove"
+  | "freepbx.application.rollback"
   | "freepbx.backup.start"
   | "freepbx.backup.status"
   | "asterisk.version"

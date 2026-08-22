@@ -1,5 +1,6 @@
 <?php
 namespace FreePBXmodules;
+require_once __DIR__ . '/NativeCompilerRegistry.php';
 
 class Materialpbx extends \FreePBX_Helpers implements \BMO
 {
@@ -13,6 +14,20 @@ class Materialpbx extends \FreePBX_Helpers implements \BMO
     public function backup() { return ['materialpbx_resources']; }
     public function restore($backup) { return true; }
     public function doConfigPageInit($page) { return true; }
+
+    public function get_config($engine)
+    {
+        if ($engine !== 'asterisk') return;
+        global $ext;
+        foreach ($this->Database->query('SELECT artifact FROM materialpbx_compiled')->fetchAll(\PDO::FETCH_COLUMN) as $json) {
+            $artifact = json_decode($json, true, 32, JSON_THROW_ON_ERROR);
+            if (($artifact['compiler'] ?? null) !== 'ring-group-get-config-v1') continue;
+            $channels = implode('&', array_map(static fn($member) => 'PJSIP/' . $member, $artifact['members']));
+            $ext->add($artifact['context'], 's', '', new \ext_noop('MaterialPBX generated ring group'));
+            $ext->add($artifact['context'], 's', '', new \ext_dial($channels . ',' . (int)$artifact['timeout']));
+            $ext->add($artifact['context'], 's', '', new \ext_hangup());
+        }
+    }
 
     public function syncResource(string $kind, string $id, bool $deleted): array
     {
@@ -43,13 +58,39 @@ VALUES (?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(6))
 ON DUPLICATE KEY UPDATE revision = VALUES(revision), enabled = VALUES(enabled),
   display_name = VALUES(display_name), configuration = VALUES(configuration), updated_at = VALUES(updated_at)
 SQL;
+        $registry = new \FreePBXmodules\Materialpbx\NativeCompilerRegistry();
+        $preview = $registry->preview($resource);
+        if ($preview['status'] !== 'compiled') return ['storedDesired' => true, 'compilation' => ['status' => 'unsupported', 'compiler' => null, 'reason' => $preview['reason'], 'snapshotId' => null, 'diff' => $preview['diff']], 'applied' => false, 'rollback' => ['attempted' => false, 'succeeded' => null, 'snapshotId' => null, 'reason' => null]];
+        $snapshotId = self::uuid4();
+        $this->Database->beginTransaction();
+        try {
         $statement = $this->Database->prepare($sql);
         $statement->execute([
             $kind, $id, (int) $resource['revision'], !empty($resource['enabled']) ? 1 : 0,
             mb_substr((string) $resource['displayName'], 0, 256), $configuration
         ]);
-        return ['synced' => true, 'kind' => $kind, 'id' => $id, 'revision' => (int) $resource['revision']];
+        $prior = $this->Database->prepare('SELECT compiler, artifact FROM materialpbx_compiled WHERE resource_kind=? AND resource_id=? FOR UPDATE'); $prior->execute([$kind, $id]); $old = $prior->fetch(\PDO::FETCH_ASSOC) ?: [];
+        $snapshot = $this->Database->prepare('INSERT INTO materialpbx_compiler_snapshots (snapshot_id, resource_kind, resource_id, prior_compiler, prior_artifact, created_at) VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP(6))'); $snapshot->execute([$snapshotId, $kind, $id, $old['compiler'] ?? null, $old['artifact'] ?? null]);
+        $compiled = $this->Database->prepare('INSERT INTO materialpbx_compiled (resource_kind, resource_id, compiler, artifact, updated_at) VALUES (?, ?, ?, ?, UTC_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE compiler=VALUES(compiler), artifact=VALUES(artifact), updated_at=VALUES(updated_at)'); $compiled->execute([$kind, $id, $preview['compiler'], json_encode($preview['artifact'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)]);
+        $this->Database->commit();
+        return ['storedDesired' => true, 'compilation' => ['status' => 'compiled', 'compiler' => $preview['compiler'], 'reason' => $preview['reason'], 'snapshotId' => $snapshotId, 'diff' => $preview['diff']], 'applied' => true, 'rollback' => ['attempted' => false, 'succeeded' => null, 'snapshotId' => $snapshotId, 'reason' => null]];
+        } catch (\Throwable $error) { $this->Database->rollBack(); throw $error; }
     }
+
+    public function rollbackCompilation(string $snapshotId): array
+    {
+        if (!preg_match('/^[0-9a-f-]{36}$/D', $snapshotId)) throw new \InvalidArgumentException('Invalid snapshot identifier');
+        $this->Database->beginTransaction();
+        try {
+            $q=$this->Database->prepare('SELECT * FROM materialpbx_compiler_snapshots WHERE snapshot_id=? AND restored_at IS NULL FOR UPDATE'); $q->execute([$snapshotId]); $s=$q->fetch(\PDO::FETCH_ASSOC); if (!$s) throw new \RuntimeException('Snapshot is missing or already restored');
+            if ($s['prior_artifact'] === null) { $d=$this->Database->prepare('DELETE FROM materialpbx_compiled WHERE resource_kind=? AND resource_id=?'); $d->execute([$s['resource_kind'],$s['resource_id']]); }
+            else { $u=$this->Database->prepare('INSERT INTO materialpbx_compiled (resource_kind,resource_id,compiler,artifact,updated_at) VALUES (?,?,?,?,UTC_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE compiler=VALUES(compiler),artifact=VALUES(artifact),updated_at=VALUES(updated_at)'); $u->execute([$s['resource_kind'],$s['resource_id'],$s['prior_compiler'],$s['prior_artifact']]); }
+            $m=$this->Database->prepare('UPDATE materialpbx_compiler_snapshots SET restored_at=UTC_TIMESTAMP(6) WHERE snapshot_id=?'); $m->execute([$snapshotId]); $this->Database->commit();
+            return ['attempted'=>true,'succeeded'=>true,'snapshotId'=>$snapshotId,'reason'=>'Compiled output restored; reload and runtime verification remain pending.'];
+        } catch (\Throwable $error) { $this->Database->rollBack(); throw $error; }
+    }
+
+    private static function uuid4(): string { $d=random_bytes(16); $d[6]=chr((ord($d[6])&15)|64); $d[8]=chr((ord($d[8])&63)|128); return vsprintf('%s%s-%s-%s-%s-%s%s%s',str_split(bin2hex($d),4)); }
 
     public function submitCallFile(string $id): array
     {

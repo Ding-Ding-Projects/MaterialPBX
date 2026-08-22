@@ -23,6 +23,7 @@ class Materialpbx extends Command
             ->addOption('operation', null, InputOption::VALUE_REQUIRED, 'sync or submit-call-file')
             ->addOption('kind', null, InputOption::VALUE_REQUIRED)
             ->addOption('id', null, InputOption::VALUE_REQUIRED)
+            ->addOption('snapshot-id', null, InputOption::VALUE_REQUIRED)
             ->addOption('deleted', null, InputOption::VALUE_NONE);
     }
 
@@ -35,6 +36,8 @@ class Materialpbx extends Command
                 $result = $module->syncResource((string) $input->getOption('kind'), (string) $input->getOption('id'), (bool) $input->getOption('deleted'));
             } elseif ($operation === 'submit-call-file') {
                 $result = $module->submitCallFile((string) $input->getOption('id'));
+            } elseif ($operation === 'rollback-compiler') {
+                $result = $module->rollbackCompilation((string) $input->getOption('snapshot-id'));
             } else {
                 throw new \InvalidArgumentException('Unknown operation');
             }

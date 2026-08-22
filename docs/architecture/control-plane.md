@@ -31,7 +31,7 @@ The generic envelope guarantees transport, revision, audit, and bounds. Live app
 3. The resource store performs optimistic revision comparison and an atomic durable write.
 4. The control plane constructs an exact ordered application plan and asks the privileged helper to apply one validated feature payload.
 5. The helper runs the allowlisted FreePBX bridge command without a shell.
-6. The bridge reads the desired record, creates only module-owned output, and returns status.
+6. The bridge previews the registered native compiler, snapshots prior module-owned output, applies the artifact transactionally when supported, and returns the exact compilation diff and rollback identity.
 7. `fwconsole reload` applies configuration; its outcome remains separate from persistence.
 8. The API publishes a WebSocket event and appends an audit record.
 

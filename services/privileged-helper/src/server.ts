@@ -12,7 +12,7 @@ const RequestSchema = z.object({
   requestId: z.string().uuid(),
   operation: z.enum([
     "system.capabilities", "fwconsole.version", "fwconsole.reload", "fwconsole.status",
-    "freepbx.application.apply", "freepbx.application.remove", "freepbx.backup.start", "freepbx.backup.status",
+    "freepbx.application.apply", "freepbx.application.remove", "freepbx.application.rollback", "freepbx.backup.start", "freepbx.backup.status",
     "asterisk.version", "asterisk.module.list", "asterisk.dialplan.reload", "asterisk.callfile.submit"
   ]),
   parameters: z.record(z.string(), z.unknown()).default({})
@@ -40,6 +40,10 @@ function commandFor(request: z.infer<typeof RequestSchema>): CommandSpec | null 
       const id = Identifier.parse(p.id);
       const kindByFeature = { extension: "extensions", trunk: "trunks", "inbound-route": "inbound-routes", "outbound-route": "outbound-routes", ivr: "ivrs", queue: "queues", "ring-group": "ring-groups", voicemail: "voicemail-boxes", "time-condition": "time-conditions" } as const;
       return { executable: "/usr/sbin/fwconsole", args: ["materialpbx", "--operation", "sync", "--kind", kindByFeature[feature], "--id", id, "--deleted"], timeoutMs: 60_000 };
+    }
+    case "freepbx.application.rollback": {
+      const snapshotId = z.string().uuid().parse(p.snapshotId);
+      return { executable: "/usr/sbin/fwconsole", args: ["materialpbx", "--operation", "rollback-compiler", "--snapshot-id", snapshotId], timeoutMs: 60_000 };
     }
     case "freepbx.backup.start": {
       const id = Identifier.parse(p.id);

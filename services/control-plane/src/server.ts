@@ -162,6 +162,12 @@ server.post("/v1/resources/call-files/:id/submit", async request => {
   await audit.record({ actor: "local-admin", action: "call-file.submit", target: resource.id, outcome: result.ok ? "allowed" : "failed", detail: { exitCode: result.exitCode } });
   return result;
 });
+server.post("/v1/resources/compiler/rollback", async request => {
+  const body = z.object({ snapshotId: z.string().uuid() }).parse(request.body);
+  const result = await freepbx.rollback(body.snapshotId);
+  if (!result.ok) throw Object.assign(new Error(result.error ?? (result.stderr || "Rollback failed")), { statusCode: 502 });
+  return { rollback: JSON.parse(result.stdout), reloaded: false, runtimeVerification: "pending" };
+});
 
 server.post("/v1/backups", async request => {
   const body = z.object({ id: z.string().min(1).max(128).regex(/^[A-Za-z0-9_.:@+-]+$/) }).parse(request.body);
