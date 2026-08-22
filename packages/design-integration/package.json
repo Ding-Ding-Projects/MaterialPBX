@@ -1,0 +1,10 @@
+{
+  "name": "@materialpbx/design-integration",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@worldlens/design-system": "https://github.com/Ding-Ding-Projects/worldlens/releases/download/design-system-v0.1.0/worldlens-design-system-0.1.0.tgz"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "@materialpbx/ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@materialpbx/client": "workspace:*",
+    "@materialpbx/design-integration": "workspace:*",
+    "@mdi/js": "7.4.47",
+    "vue": "3.5.40",
+    "vuetify": "3.13.0"
+  }
+}
+
