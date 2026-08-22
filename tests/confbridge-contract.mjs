@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { FreePbxApplicationRequestSchema, FreePbxApplicationResultSchema, FreePbxConferenceConfigurationSchema } from '../packages/protocol/src/freepbx-application.ts'
 import { DisconnectedMaterialPbxClient, HttpMaterialPbxClient } from '../packages/client/src/index.ts'
-import { appendConferenceDigit, conferenceDefaults, conferenceFieldErrors, conferencePresetValues, conferenceReviewItems, removeConferenceDigit, serializeConferenceDraft, validateConferenceDraft } from '../packages/ui/src/conference.ts'
+import { appendConferenceDigit, conferenceDefaults, conferenceEditorValues, conferenceFieldErrors, conferencePresetValues, conferenceReviewItems, removeConferenceDigit, serializeConferenceDraft, validateConferenceDraft } from '../packages/ui/src/conference.ts'
 
 const validConfiguration = {
   number: '70',
@@ -32,6 +32,16 @@ assert.deepEqual(dispatched.configuration, validConfiguration)
 assert.equal(FreePbxApplicationResultSchema.shape.storedDesired.safeParse(null).success, true)
 
 const draft = conferenceDefaults()
+assert.deepEqual(conferenceEditorValues(), {
+  name: 'Conference room 700', enabled: true, number: '700', maxParticipants: 20,
+  recordConference: false, announceJoinLeave: false, startMuted: false,
+  musicOnHoldWhenEmpty: false, quiet: false,
+})
+assert.deepEqual(conferenceEditorValues({ name: 'Loaded room', enabled: false, details: { number: '801', maxParticipants: 42, recordConference: true, announceJoinLeave: false, startMuted: true, musicOnHoldWhenEmpty: false, quiet: false } }), {
+  name: 'Loaded room', enabled: false, number: '801', maxParticipants: 42,
+  recordConference: true, announceJoinLeave: false, startMuted: true,
+  musicOnHoldWhenEmpty: false, quiet: false,
+})
 assert.deepEqual(draft, { ...validConfiguration, roomName: 'Conference room 700', enabled: true, number: '700', maxParticipants: 20 })
 assert.deepEqual(validateConferenceDraft(draft), [])
 assert.match(conferenceFieldErrors({ ...draft, roomName: '' }).roomName?.[0] ?? '', /1 to 80/)

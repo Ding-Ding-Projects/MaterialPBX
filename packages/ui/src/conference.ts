@@ -35,6 +35,16 @@ export const conferenceDefaults = (): ConferenceDraft => ({
   quiet: false,
 })
 
+export function conferenceEditorValues(resource?: { name?: unknown; enabled?: unknown; details?: Record<string, unknown> }): Record<string, unknown> {
+  const { roomName, enabled, ...configuration } = conferenceDefaults()
+  return {
+    ...configuration,
+    ...(resource?.details ?? {}),
+    name: typeof resource?.name === 'string' ? resource.name : roomName,
+    enabled: typeof resource?.enabled === 'boolean' ? resource.enabled : enabled,
+  }
+}
+
 export function conferenceFieldErrors(draft: ConferenceDraft): ConferenceFieldErrors {
   const failures: ConferenceFieldErrors = {}
   const add = (field: ConferenceField, message: string) => { (failures[field] ??= []).push(message) }

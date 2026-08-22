@@ -3,7 +3,7 @@ import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, rea
 import { createDisconnectedClient, createHttpClient, listLocalDrafts, MaterialPbxRequestError, removeLocalDraft, type CapabilitySnapshot, type ConnectionState, type HealthSnapshot, type MaterialPbxClient, type PbxResource, type PbxResourceKind } from '@materialpbx/client'
 import { mdiAccountGroupOutline, mdiBellOutline, mdiBookOpenPageVariantOutline, mdiChevronRight, mdiCogOutline, mdiDotsVertical, mdiDownloadOutline, mdiGithub, mdiInformationOutline, mdiMagnify, mdiMessageProcessingOutline, mdiMicrosoftWindows, mdiPhoneIncomingOutline, mdiRegex, mdiRocketLaunchOutline, mdiServerNetwork, mdiShapeOutline, mdiSproutOutline, mdiTuneVariant, mdiVoicemail } from '@mdi/js'
 import { contrastRatio, RAINBOW_SENTINEL, translateColor } from './color'
-import { appendConferenceDigit, conferenceDefaults, conferenceFieldErrors, conferencePresetValues, conferenceReviewItems, removeConferenceDigit, serializeConferenceDraft, validateConferenceDraft, type ConferenceDraft, type ConferenceField, type ConferencePreset } from './conference'
+import { appendConferenceDigit, conferenceEditorValues, conferenceFieldErrors, conferencePresetValues, conferenceReviewItems, removeConferenceDigit, serializeConferenceDraft, validateConferenceDraft, type ConferenceDraft, type ConferenceField, type ConferencePreset } from './conference'
 import { compileSearch } from './regex'
 
 const props = withDefaults(defineProps<{ surface?: 'web' | 'desktop' | 'site' }>(), { surface: 'web' })
@@ -643,8 +643,7 @@ function openResourceEditor(resource?: PbxResource) {
   editingResourceProvenance.value = resource?.provenance
   Object.keys(editorValues).forEach((key) => delete editorValues[key])
   if (activePage.value === 'conferences') {
-    const defaults = conferenceDefaults()
-    Object.assign(editorValues, resource?.details ?? {}, { name: resource?.name ?? defaults.roomName, enabled: resource?.enabled ?? defaults.enabled })
+    Object.assign(editorValues, conferenceEditorValues(resource))
   } else {
     Object.assign(editorValues, resource?.details ?? {}, { name: resource?.name ?? '', enabled: resource?.enabled ?? true, ringSeconds: resource?.details?.ringSeconds ?? 25, concurrency: resource?.details?.concurrency ?? 4, tls: resource?.details?.tls ?? true })
   }
