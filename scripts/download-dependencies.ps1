@@ -38,3 +38,17 @@ try {
 $elapsed = (Get-Date) - $started
 Write-Phase ("Dependencies are ready in {0:c}." -f $elapsed)
 
+Write-Phase 'Checking the PHP command-line interpreter for FreePBX module syntax checks.'
+$php = Get-Command php.exe -ErrorAction SilentlyContinue
+if (-not $php) {
+  $winget = Get-Command winget.exe -ErrorAction SilentlyContinue
+  if (-not $winget) { throw 'PHP is missing, and winget is unavailable. Tried the Windows Package Manager canonical source.' }
+  Write-Phase 'Installing PHP through Windows Package Manager into the user scope.'
+  & $winget.Source install PHP.PHP.8.4 --accept-package-agreements --accept-source-agreements --silent --scope user | Out-Host
+  if ($LASTEXITCODE -ne 0) { throw "PHP installation failed with exit code $LASTEXITCODE." }
+  $env:Path = [Environment]::GetEnvironmentVariable('Path','User') + ';' + [Environment]::GetEnvironmentVariable('Path','Machine')
+  $php = Get-Command php.exe -ErrorAction SilentlyContinue
+  if (-not $php) { throw 'PHP installation completed but php.exe is not visible to this process.' }
+}
+Write-Phase "Using $(& $php.Source --version | Select-Object -First 1)."
+

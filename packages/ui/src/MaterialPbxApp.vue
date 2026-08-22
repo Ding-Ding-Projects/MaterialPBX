@@ -184,8 +184,11 @@ const resourceForms: Record<string, Array<{ key: string; label: string; type: st
     { key: 'voicemail', label: 'Voicemail', type: 'switch', help: 'Record a message when this extension is not answered.' },
   ],
   trunks: [
+    { key: 'technology', label: 'Connection technology', type: 'select', options: ['pjsip'], help: 'The current bounded compiler supports PJSIP.' },
+    { key: 'host', label: 'Provider host or IP address', type: 'text', help: 'Use the exact DNS name or address supplied by your provider.' },
+    { key: 'port', label: 'Port', type: 'number', help: 'Normally 5060 for UDP/TCP and 5061 for TLS; use your provider’s documented value.' },
     { key: 'provider', label: 'Phone company profile', type: 'select', options: ['Generic SIP', 'Pair another PBX', 'Custom verified profile'], help: 'A guided profile supplies safe defaults.' },
-    { key: 'transport', label: 'Call transport', type: 'select', options: ['TLS (recommended)', 'TCP', 'UDP'], help: 'TLS encrypts signaling when the provider supports it.' },
+    { key: 'transport', label: 'Call transport', type: 'select', options: ['tls', 'tcp', 'udp'], help: 'TLS encrypts signaling when the provider supports it. Use lowercase protocol values in expert mode.' },
     { key: 'media', label: 'Voice encryption', type: 'select', options: ['SRTP (recommended)', 'Provider default', 'RTP'], help: 'SRTP encrypts the voice stream when both sides support it.' },
     { key: 'concurrency', label: 'Maximum simultaneous calls', type: 'slider', help: 'Prevents this connection from accepting more calls than purchased.' },
   ],
@@ -231,7 +234,7 @@ const resourceForms: Record<string, Array<{ key: string; label: string; type: st
 const visualFeatureKinds = new Set<PbxResourceKind>(['extensions','trunks','inbound-routes','outbound-routes','ivrs','queues','observability','paired-servers'])
 const visualFeature = computed(() => isResourcePage(activePage.value) && visualFeatureKinds.has(activePage.value) ? ({
   extensions: { eyebrow: 'PEOPLE AND PHONES', lead: 'Give each person a short number and decide which real devices ring.', default: 'Suggested start: three-digit extensions beginning at 100, voicemail on, 25-second ring time.', icon: '☎' },
-  trunks: { eyebrow: 'PHONE COMPANY LINKS', lead: 'See which outside calling connections are healthy, encrypted, and within their call limits.', default: 'Suggested start: TLS and SRTP when the provider supports them, with the purchased concurrency limit.', icon: '⇄' },
+  trunks: { eyebrow: 'PHONE COMPANY LINKS', lead: 'Configure a bounded PJSIP connection and see which outside links are healthy, encrypted, and within their call limits.', default: 'Suggested start: PJSIP with TLS when supported, the provider’s documented host and port, then add credentials only through its reviewed flow.', icon: '⇄' },
   'inbound-routes': { eyebrow: 'INCOMING CALL MAP', lead: 'Match each public number to the first destination callers should reach.', default: 'Suggested start: send the main number to a staffed queue, with voicemail as the after-hours fallback.', icon: '↘' },
   'outbound-routes': { eyebrow: 'OUTGOING CALL MAP', lead: 'Choose which healthy phone-company connection carries each kind of number.', default: 'Suggested start: separate emergency, local, and international rules so permissions stay reviewable.', icon: '↗' },
   ivrs: { eyebrow: 'VISUAL CALL-FLOW CANVAS', lead: 'Build the caller journey from greeting to key choices and safe fallbacks.', default: 'Suggested start: operator on 0, repeat once after an invalid key, then use a clear fallback.', icon: '⑴' },

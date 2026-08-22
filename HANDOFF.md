@@ -20,7 +20,7 @@
 - The active ultra-speed workflow did not run tests, lint, type checking, accessibility checks, security checks, smoke checks, or screenshots. Successful compilation and packaging are not runtime verification.
 - Native compiler milestone at `44111eed9a6daccce70ca6a6eee570f3da8d7c4a`: enabled ring groups with validated PJSIP members, bounded ring time, and terminate failover compile into module-owned output through the FreePBX generation hook. Preview, diff, UUID snapshot, transactional apply/removal, single-use rollback, reload state, and pending runtime verification are returned independently.
 - Disabled ring groups persist disabled desired state and transactionally snapshot and remove prior compiled output. Deletion likewise snapshots and removes compiled output. Unsupported edits state when prior output is retained and runtime may differ from desired state.
-- Native compilation remains unsupported for extensions, trunks, inbound and outbound routes, IVRs, voicemail, and time conditions. Queues now compile through the bounded module-owned path when they have 1–256 unique validated members, a supported Asterisk strategy, terminate failover, and 1–3600 second timeout. The implementation deliberately does not guess undocumented FreePBX table schemas.
+- Native compilation remains unsupported for inbound/outbound routes, IVRs, voicemail, and time conditions. Extensions now generate bounded internal contexts; queues support the validated member/strategy/timeout subset; trunks support credentialless PJSIP UDP/TCP/TLS with fixed endpoint/AOR/identify output to `/etc/asterisk/pjsip_materialpbx_custom.conf`. Registration and referenced credentials remain unsupported. The implementation deliberately does not guess undocumented FreePBX table schemas.
 - Package builds completed for the protocol, privileged helper, and control plane. PHP syntax, FreePBX module loading, migrations, generated dialplan, reload, rollback, and runtime calls were not verified; the current build host has no PHP executable.
 - Release context: `build-112-2d9d7a6` is the latest verified release before publication for commit `44111eed9a6daccce70ca6a6eee570f3da8d7c4a` finishes. No newer release is claimed.
 
@@ -48,5 +48,5 @@
 3. Run the full verification and capture workflow after leaving ultra-speed mode.
 4. Verify the next unsigned Windows Squirrel installer from its final integrated commit.
 5. Decide whether to adapt the bootstrap for a supported inventoried platform or provision a dedicated Debian 12 amd64 host, without disturbing existing workloads.
-6. Load the native compiler module on FreePBX 17 and prove migration, generation, reload, rollback, disablement, deletion, and actual ring-group and queue calls.
+6. Load the native compiler module on FreePBX 17 and prove migration, generation, reload, rollback, disablement, deletion, actual ring-group/queue calls, extension dialing, and credentialless PJSIP trunk behavior.
 7. Implement the remaining native compilers only through documented FreePBX APIs or reviewed module-owned generation paths.

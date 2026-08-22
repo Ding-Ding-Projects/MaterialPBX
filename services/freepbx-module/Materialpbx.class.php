@@ -21,11 +21,20 @@ class Materialpbx extends \FreePBX_Helpers implements \BMO
         global $ext;
         foreach ($this->Database->query('SELECT artifact FROM materialpbx_compiled')->fetchAll(\PDO::FETCH_COLUMN) as $json) {
             $artifact = json_decode($json, true, 32, JSON_THROW_ON_ERROR);
-            if (($artifact['compiler'] ?? null) !== 'ring-group-get-config-v1') continue;
+            $compiler = $artifact['compiler'] ?? null;
+            if ($compiler === 'ring-group-get-config-v1') {
             $channels = implode('&', array_map(static fn($member) => 'PJSIP/' . $member, $artifact['members']));
             $ext->add($artifact['context'], 's', '', new \ext_noop('MaterialPBX generated ring group'));
             $ext->add($artifact['context'], 's', '', new \ext_dial($channels . ',' . (int)$artifact['timeout']));
             $ext->add($artifact['context'], 's', '', new \ext_hangup());
+            } elseif ($compiler === 'extension-get-config-v1') {
+                $ext->add($artifact['context'], (string)$artifact['extension'], 1, new \ext_noop('MaterialPBX generated extension'));
+            } elseif ($compiler === 'trunk-get-config-v1') {
+                $ext->add($artifact['endpoint'], 's', '', new \ext_noop('MaterialPBX generated PJSIP trunk endpoint'));
+                $this->appendPjsipSection($artifact['endpoint'], ['type' => 'endpoint', 'context' => 'from-trunk', 'disallow' => 'all', 'allow' => 'opus,ulaw']);
+                $this->appendPjsipSection($artifact['endpoint'], ['type' => 'aor', 'contact' => "sip:{$artifact['host']}:{$artifact['port']}"]);
+                $this->appendPjsipSection($artifact['endpoint'], ['type' => 'identify', 'endpoint' => $artifact['endpoint'], 'match' => $artifact['host']]);
+            }
         }
     }
 
@@ -160,6 +169,19 @@ SQL;
         $document = json_decode($bytes, true, 64, JSON_THROW_ON_ERROR);
         if (($document['version'] ?? null) !== 1 || !is_array($document['resources'] ?? null)) throw new \RuntimeException('Invalid desired-state store');
         return $document;
+    }
+
+    private function appendPjsipSection(string $name, array $fields): void
+    {
+        $destination = '/etc/asterisk/pjsip_materialpbx_custom.conf';
+        if (!is_writable(dirname($destination)) && !is_writable($destination) && !file_exists($destination)) throw new \RuntimeException('The module-owned PJSIP output file is not writable');
+        $lines = ["[{$name}]"];
+        foreach ($fields as $key => $value) {
+            $key = (string)$key; $value = (string)$value;
+            if (!preg_match('/^[A-Za-z][A-Za-z0-9_]{0,31}$/D', $key) || strlen($value) > 255 || preg_match('/[\r\n\0]/', $value)) throw new \RuntimeException('Unsafe PJSIP output field');
+            $lines[] = "{$key}={$value}";
+        }
+        if (@file_put_contents($destination, implode("\n", $lines) . "\n", FILE_APPEND | LOCK_EX) === false) throw new \RuntimeException('Unable to append bounded PJSIP output');
     }
 
     private static function assertIdentifier(string $value, int $max): void

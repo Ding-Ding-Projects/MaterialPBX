@@ -6,7 +6,9 @@ The native compiler registry separates stored desired state from generated PBX o
 
 Version 1 compiles only enabled ring groups with validated members, a 1–300 second ring time, and terminate failover. It stores a module-owned artifact and renders the context through FreePBX's `get_config` hook using fixed `NoOp`, `Dial`, and `Hangup` objects. It never writes core configuration files or native FreePBX module tables.
 
-Queues now have a bounded `queue-get-config-v1` compiler for enabled queues with one to 256 unique validated members, a supported Asterisk strategy (`ringall`, `leastrecent`, `fewestcalls`, `random`, or `rrmemory`), terminate failover, and a 1–3600 second timeout. It records an explicit module-owned artifact and follows the same snapshot/transaction path as ring groups. Disabled queues remove prior output transactionally. Extensions, trunks, inbound and outbound routes, IVRs, voicemail, and time conditions remain native-compiler `unsupported`. Their desired state is retained, but no reload or live mutation is claimed. Supporting them requires documented BMO APIs or independently reviewed compilers; undocumented table schemas are not guessed.
+Extensions have a bounded `extension-get-config-v1` compiler that generates the module-owned internal context for a validated 2–12 digit numeric extension. Queues have bounded `queue-get-config-v1` support for enabled queues with one to 256 unique validated members, a supported Asterisk strategy (`ringall`, `leastrecent`, `fewestcalls`, `random`, or `rrmemory`), terminate failover, and a 1–3600 second timeout.
+
+Trunks have a deliberately narrow `trunk-get-config-v1` compiler for credentialless PJSIP trunks using UDP, TCP, or TLS with a valid host/IP and port. The generation hook writes only fixed, field-validated endpoint/AOR/identify records to `/etc/asterisk/pjsip_materialpbx_custom.conf`. Registration and referenced credentials remain unsupported until reviewed provider-specific handling exists. Inbound/outbound routes, IVRs, voicemail, and time conditions remain native-compiler `unsupported`; undocumented table schemas are still not guessed.
 
 ## Transactions and rollback
 
@@ -22,4 +24,4 @@ Responses distinguish `storedDesired`, compilation status and diff, snapshot ide
 
 ## Limitations and verification
 
-The generated ring-group and queue contexts are module owned but are not linked into another route automatically. Membership assumes PJSIP endpoint identifiers match the validated members. Queue generation still needs live proof that its bounded hook produces the intended Asterisk queue behavior. No live FreePBX, Asterisk dialplan, call, reload, rollback, disablement, deletion, or runtime verification ran during the accelerated pass. Package builds prove parsing/compilation only, not telephony behavior.
+Generated ring-group, extension, queue, and trunk output is module owned but is not linked into another call route automatically. Ring-group/queue membership assumes PJSIP endpoint identifiers match validated members; trunk generation assumes credentialless direct IP-style service. No live FreePBX/Asterisk migration, generated dialplan/PJSIP output, reload, rollback, disablement, deletion, or real call verification has run. PHP syntax checks and package builds prove parsing/compilation only, not telephony behavior.

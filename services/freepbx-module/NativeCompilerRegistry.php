@@ -6,6 +6,8 @@ final class NativeCompilerRegistry
     public function preview(array $resource): array
     {
         $kind = (string)($resource['kind'] ?? '');
+        if ($kind === 'extensions') return $this->previewExtension($resource);
+        if ($kind === 'trunks') return $this->previewTrunk($resource);
         if ($kind === 'queues') return $this->previewQueue($resource);
         if ($kind !== 'ring-groups') return $this->unsupported($kind, 'No documented native compiler is registered for this feature.');
         $config = $resource['configuration'] ?? [];
@@ -21,6 +23,32 @@ final class NativeCompilerRegistry
         return ['status' => 'compiled', 'compiler' => $artifact['compiler'], 'reason' => 'The ring group can use the supported FreePBX get_config hook.', 'artifact' => $artifact, 'diff' => [['operation' => 'replace', 'target' => $context, 'summary' => 'Generate the module-owned ring-group context.']]];
     }
     private function unsupported(string $kind, string $reason): array { return ['status' => 'unsupported', 'compiler' => null, 'reason' => $reason, 'artifact' => null, 'diff' => [['operation' => 'unchanged', 'target' => $kind ?: 'unknown', 'summary' => 'No native PBX output will change.']]]; }
+    private function previewExtension(array $resource): array
+    {
+        $config = $resource['configuration'] ?? [];
+        if (empty($resource['enabled'])) return ['status' => 'remove', 'compiler' => 'extension-get-config-v1', 'reason' => 'The disabled extension requires removal of any prior module-owned output.', 'artifact' => null, 'diff' => [['operation' => 'remove', 'target' => 'extensions:' . (string)$resource['id'], 'summary' => 'Remove prior generated output when it exists.']]];
+        $extension = $config['extension'] ?? '';
+        if (!is_string($extension) || !preg_match('/^[0-9]{2,12}$/D', $extension)) return $this->unsupported('extensions', 'Extensions require a 2 to 12 digit numeric number.');
+        $context = 'materialpbx-extension-' . substr(hash('sha256', (string)$resource['id']), 0, 16);
+        $artifact = ['schemaVersion' => 1, 'compiler' => 'extension-get-config-v1', 'context' => $context, 'extension' => $extension];
+        return ['status' => 'compiled', 'compiler' => $artifact['compiler'], 'reason' => 'The extension can generate its module-owned internal dialplan entry.', 'artifact' => $artifact, 'diff' => [['operation' => 'replace', 'target' => $context, 'summary' => "Generate the module-owned extension context for {$extension}."]]];
+    }
+    private function previewTrunk(array $resource): array
+    {
+        $config = $resource['configuration'] ?? [];
+        if (empty($resource['enabled'])) return ['status' => 'remove', 'compiler' => 'trunk-get-config-v1', 'reason' => 'The disabled trunk requires removal of any prior module-owned output.', 'artifact' => null, 'diff' => [['operation' => 'remove', 'target' => 'trunks:' . (string)$resource['id'], 'summary' => 'Remove prior generated output when it exists.']]];
+        $host = $config['host'] ?? '';
+        if (!is_string($host) || strlen($host) < 1 || strlen($host) > 253 || preg_match('/[^A-Za-z0-9.\-:]/', $host)) return $this->unsupported('trunks', 'A trunk host must be 1 to 253 valid DNS, IPv4, IPv6 literal, or host:port characters.');
+        if (($config['technology'] ?? '') !== 'pjsip') return $this->unsupported('trunks', 'Native trunk compilation supports PJSIP technology only.');
+        $transport = (string)($config['transport'] ?? '');
+        if (!in_array($transport, ['udp', 'tcp', 'tls'], true)) return $this->unsupported('trunks', 'Trunk transport must be UDP, TCP, or TLS.');
+        if (($config['authentication'] ?? '') !== 'none') return $this->unsupported('trunks', 'This bounded compiler supports credentialless trunks only; registration and referenced credentials require reviewed provider-specific handling.');
+        $port = (int)($config['port'] ?? 5060);
+        if ($port < 1 || $port > 65535) return $this->unsupported('trunks', 'The trunk port is outside the valid range.');
+        $endpoint = 'materialpbx-trunk-' . substr(hash('sha256', (string)$resource['id']), 0, 16);
+        $artifact = ['schemaVersion' => 1, 'compiler' => 'trunk-get-config-v1', 'endpoint' => $endpoint, 'host' => $host, 'port' => $port, 'transport' => $transport];
+        return ['status' => 'compiled', 'compiler' => $artifact['compiler'], 'reason' => 'The PJSIP trunk can use the bounded module-owned generation hook.', 'artifact' => $artifact, 'diff' => [['operation' => 'replace', 'target' => $endpoint, 'summary' => "Generate the module-owned PJSIP trunk endpoint for {$host}:{$port}/{$transport}."]]];
+    }
     private function previewQueue(array $resource): array
     {
         $config = $resource['configuration'] ?? [];
