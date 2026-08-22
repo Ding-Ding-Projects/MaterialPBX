@@ -37,10 +37,13 @@ export class FreePbxAdapter {
 
   async remove(kind: string, id: string) {
     const feature = featureByKind[kind as keyof typeof featureByKind];
-    if (!feature) return { applied: false, reloaded: false, partialFailure: false, warning: `Live removal is unsupported for resource kind ${kind}.` };
+    if (!feature) return { storedDesired: false, compilation: { status: "unsupported", compiler: null, reason: `Live removal is unsupported for resource kind ${kind}.`, snapshotId: null, diff: [] }, applied: false, reloaded: false, runtimeVerification: "pending", partialFailure: false, rollback: { attempted: false, succeeded: null, snapshotId: null, reason: null }, warning: `Live removal is unsupported for resource kind ${kind}.` };
     const sync = await this.helper.execute("freepbx.application.remove", { feature, id });
-    if (!sync.ok) return { applied: false, reloaded: false, partialFailure: false, warning: sync.error ?? sync.stderr };
+    if (!sync.ok) return { storedDesired: false, compilation: { status: "failed", compiler: null, reason: "The native deletion command failed.", snapshotId: null, diff: [] }, applied: false, reloaded: false, runtimeVerification: "pending", partialFailure: false, rollback: { attempted: false, succeeded: null, snapshotId: null, reason: null }, warning: sync.error ?? sync.stderr };
+    const bridge = JSON.parse(sync.stdout) as { storedDesired: boolean; compilation: unknown; applied: boolean; rollback: FreePbxApplicationResult["rollback"] };
+    const compilation = FreePbxCompilationSchema.parse(bridge.compilation);
+    if (!bridge.applied) return { storedDesired: bridge.storedDesired, compilation, applied: false, reloaded: false, runtimeVerification: "pending", partialFailure: false, rollback: bridge.rollback, warning: compilation.reason };
     const reload = await this.helper.execute("fwconsole.reload", {}, 120_000);
-    return { applied: true, reloaded: reload.ok, partialFailure: !reload.ok, warning: reload.ok ? null : reload.error ?? reload.stderr };
+    return { storedDesired: bridge.storedDesired, compilation, applied: true, reloaded: reload.ok, runtimeVerification: "pending", partialFailure: !reload.ok, rollback: bridge.rollback, warning: reload.ok ? null : reload.error ?? reload.stderr };
   }
 }

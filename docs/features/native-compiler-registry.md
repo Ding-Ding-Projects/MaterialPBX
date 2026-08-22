@@ -12,6 +12,8 @@ Extensions, trunks, inbound and outbound routes, IVRs, queues, voicemail, and ti
 
 Before replacing a compiled artifact, the module locks the prior row and stores its compiler and artifact under a UUID snapshot. Artifact replacement and snapshot creation commit together. Rollback is single-use: it locks the snapshot, restores or removes the prior module-owned artifact, and marks the snapshot restored in one transaction. `POST /v1/resources/compiler/rollback` performs only that restore; FreePBX reload and runtime verification remain pending and are returned as such.
 
+Unsupported or disabled compilation still upserts the normalized desired record in its own transaction before returning `storedDesired=true`; compiled output remains untouched. Deleting a resource locks any compiled artifact, snapshots it, removes desired and compiled rows in one transaction, and returns a removal diff plus rollback identity. When no compiled artifact exists, deletion removes desired state but reports native compilation unsupported and does not trigger a reload.
+
 ## Result semantics
 
 Responses distinguish `storedDesired`, compilation status and diff, snapshot identity, `applied`, `reloaded`, `runtimeVerification: pending`, partial failure, and rollback outcome. A compiler-unsupported result exits successfully at the bounded bridge but returns `applied=false`; the control plane does not reload FreePBX.

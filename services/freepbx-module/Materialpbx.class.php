@@ -34,9 +34,7 @@ class Materialpbx extends \FreePBX_Helpers implements \BMO
         self::assertIdentifier($kind, 64);
         self::assertIdentifier($id, 128);
         if ($deleted) {
-            $statement = $this->Database->prepare('DELETE FROM materialpbx_resources WHERE resource_kind = ? AND resource_id = ?');
-            $statement->execute([$kind, $id]);
-            return ['deleted' => $statement->rowCount() > 0, 'kind' => $kind, 'id' => $id];
+            return $this->deleteCompiledResource($kind, $id);
         }
 
         $document = self::readResourceDocument('/var/lib/materialpbx/control-plane/resources.json');
@@ -60,8 +58,6 @@ ON DUPLICATE KEY UPDATE revision = VALUES(revision), enabled = VALUES(enabled),
 SQL;
         $registry = new \FreePBXmodules\Materialpbx\NativeCompilerRegistry();
         $preview = $registry->preview($resource);
-        if ($preview['status'] !== 'compiled') return ['storedDesired' => true, 'compilation' => ['status' => 'unsupported', 'compiler' => null, 'reason' => $preview['reason'], 'snapshotId' => null, 'diff' => $preview['diff']], 'applied' => false, 'rollback' => ['attempted' => false, 'succeeded' => null, 'snapshotId' => null, 'reason' => null]];
-        $snapshotId = self::uuid4();
         $this->Database->beginTransaction();
         try {
         $statement = $this->Database->prepare($sql);
@@ -69,11 +65,34 @@ SQL;
             $kind, $id, (int) $resource['revision'], !empty($resource['enabled']) ? 1 : 0,
             mb_substr((string) $resource['displayName'], 0, 256), $configuration
         ]);
+        if ($preview['status'] !== 'compiled') {
+            $this->Database->commit();
+            return ['storedDesired' => true, 'compilation' => ['status' => 'unsupported', 'compiler' => null, 'reason' => $preview['reason'], 'snapshotId' => null, 'diff' => $preview['diff']], 'applied' => false, 'rollback' => ['attempted' => false, 'succeeded' => null, 'snapshotId' => null, 'reason' => null]];
+        }
+        $snapshotId = self::uuid4();
         $prior = $this->Database->prepare('SELECT compiler, artifact FROM materialpbx_compiled WHERE resource_kind=? AND resource_id=? FOR UPDATE'); $prior->execute([$kind, $id]); $old = $prior->fetch(\PDO::FETCH_ASSOC) ?: [];
         $snapshot = $this->Database->prepare('INSERT INTO materialpbx_compiler_snapshots (snapshot_id, resource_kind, resource_id, prior_compiler, prior_artifact, created_at) VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP(6))'); $snapshot->execute([$snapshotId, $kind, $id, $old['compiler'] ?? null, $old['artifact'] ?? null]);
         $compiled = $this->Database->prepare('INSERT INTO materialpbx_compiled (resource_kind, resource_id, compiler, artifact, updated_at) VALUES (?, ?, ?, ?, UTC_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE compiler=VALUES(compiler), artifact=VALUES(artifact), updated_at=VALUES(updated_at)'); $compiled->execute([$kind, $id, $preview['compiler'], json_encode($preview['artifact'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)]);
         $this->Database->commit();
         return ['storedDesired' => true, 'compilation' => ['status' => 'compiled', 'compiler' => $preview['compiler'], 'reason' => $preview['reason'], 'snapshotId' => $snapshotId, 'diff' => $preview['diff']], 'applied' => true, 'rollback' => ['attempted' => false, 'succeeded' => null, 'snapshotId' => $snapshotId, 'reason' => null]];
+        } catch (\Throwable $error) { $this->Database->rollBack(); throw $error; }
+    }
+
+    private function deleteCompiledResource(string $kind, string $id): array
+    {
+        $this->Database->beginTransaction();
+        try {
+            $prior=$this->Database->prepare('SELECT compiler,artifact FROM materialpbx_compiled WHERE resource_kind=? AND resource_id=? FOR UPDATE'); $prior->execute([$kind,$id]); $old=$prior->fetch(\PDO::FETCH_ASSOC) ?: null;
+            $desired=$this->Database->prepare('DELETE FROM materialpbx_resources WHERE resource_kind=? AND resource_id=?'); $desired->execute([$kind,$id]);
+            if (!$old) {
+                $this->Database->commit();
+                return ['storedDesired'=>false,'compilation'=>['status'=>'unsupported','compiler'=>null,'reason'=>'No module-owned compiled artifact existed for this resource.','snapshotId'=>null,'diff'=>[['operation'=>'unchanged','target'=>$kind.':'.$id,'summary'=>'No generated output was removed.']]],'applied'=>false,'rollback'=>['attempted'=>false,'succeeded'=>null,'snapshotId'=>null,'reason'=>null]];
+            }
+            $snapshotId=self::uuid4();
+            $snapshot=$this->Database->prepare('INSERT INTO materialpbx_compiler_snapshots (snapshot_id,resource_kind,resource_id,prior_compiler,prior_artifact,created_at) VALUES (?,?,?,?,?,UTC_TIMESTAMP(6))'); $snapshot->execute([$snapshotId,$kind,$id,$old['compiler'],$old['artifact']]);
+            $remove=$this->Database->prepare('DELETE FROM materialpbx_compiled WHERE resource_kind=? AND resource_id=?'); $remove->execute([$kind,$id]);
+            $this->Database->commit();
+            return ['storedDesired'=>false,'compilation'=>['status'=>'compiled','compiler'=>$old['compiler'],'reason'=>'The module-owned compiled artifact was removed transactionally.','snapshotId'=>$snapshotId,'diff'=>[['operation'=>'remove','target'=>$kind.':'.$id,'summary'=>'Remove generated output after preserving its snapshot.']]],'applied'=>true,'rollback'=>['attempted'=>false,'succeeded'=>null,'snapshotId'=>$snapshotId,'reason'=>null]];
         } catch (\Throwable $error) { $this->Database->rollBack(); throw $error; }
     }
 
