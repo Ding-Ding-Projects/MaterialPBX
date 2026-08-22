@@ -12,6 +12,7 @@ final class NativeCompilerRegistry
         if ($kind === 'outbound-routes') return $this->previewOutboundRoute($resource);
         if ($kind === 'ivrs') return $this->previewIvr($resource);
         if ($kind === 'queues') return $this->previewQueue($resource);
+        if ($kind === 'conferences') return $this->previewConference($resource);
         if ($kind === 'voicemail-boxes') return $this->previewVoicemail($resource);
         if ($kind === 'time-conditions') return $this->previewTimeCondition($resource);
         if ($kind !== 'ring-groups') return $this->unsupported($kind, 'No documented native compiler is registered for this feature.');
@@ -119,6 +120,56 @@ final class NativeCompilerRegistry
         $context = 'materialpbx-queue-' . substr(hash('sha256', (string)$resource['id']), 0, 16);
         $artifact = ['schemaVersion' => 1, 'compiler' => 'queue-get-config-v1', 'context' => $context, 'members' => array_values(array_map('strval', $members)), 'strategy' => $strategies[$strategy], 'timeoutSeconds' => $timeout];
         return ['status' => 'compiled', 'compiler' => $artifact['compiler'], 'reason' => 'The queue can use the bounded module-owned generation hook.', 'artifact' => $artifact, 'diff' => [['operation' => 'replace', 'target' => $context, 'summary' => 'Generate the module-owned queue context.']]];
+    }
+    private function previewConference(array $resource): array
+    {
+        $config = $resource['configuration'] ?? [];
+        if (empty($resource['enabled'])) return ['status' => 'remove', 'compiler' => 'conference-freepbx-bmo-v1', 'reason' => 'The disabled conference requires removal of its prior module-owned FreePBX Conferences record.', 'artifact' => null, 'diff' => [['operation' => 'remove', 'target' => 'conferences:' . (string)$resource['id'], 'summary' => 'Remove the module-owned FreePBX conference when it exists.']]];
+        $number = $config['number'] ?? null;
+        if (!is_string($number) || !preg_match('/^[0-9]{2,12}$/D', $number)) return $this->unsupported('conferences', 'Conference number must contain 2 to 12 digits.');
+        $maximum = $config['maxParticipants'] ?? null;
+        if (!is_int($maximum) || $maximum < 2 || $maximum > 200) return $this->unsupported('conferences', 'Maximum participants must be a whole number from 2 through 200.');
+        foreach (['recordConference', 'announceJoinLeave', 'startMuted', 'musicOnHoldWhenEmpty', 'quiet'] as $field) {
+            if (!array_key_exists($field, $config) || !is_bool($config[$field])) return $this->unsupported('conferences', "Conference setting {$field} must be true or false.");
+        }
+        if ($config['quiet'] && $config['announceJoinLeave']) return $this->unsupported('conferences', 'Turn off quiet mode or turn off join and leave announcements. Quiet mode suppresses those announcements.');
+
+        $options = ['s'];
+        if ($config['recordConference']) $options[] = 'r';
+        if ($config['announceJoinLeave']) $options[] = 'I';
+        if ($config['startMuted']) $options[] = 'm';
+        if ($config['musicOnHoldWhenEmpty']) $options[] = 'M';
+        if ($config['quiet']) $options[] = 'q';
+        sort($options, SORT_STRING);
+        $suffix = substr(hash('sha256', (string)$resource['id']), 0, 16);
+        $displayName = (string)($resource['displayName'] ?? 'Conference');
+        $ownershipPrefix = 'MPBX:' . $suffix . ':';
+        $description = $ownershipPrefix . $displayName;
+        if (function_exists('mb_strcut')) {
+            $description = mb_strcut($description, 0, 50, 'UTF-8');
+        } elseif (function_exists('iconv_substr') && function_exists('iconv_strlen')) {
+            $length = iconv_strlen($description, 'UTF-8');
+            if ($length === false) return $this->unsupported('conferences', 'Conference display name must be valid UTF-8.');
+            while (strlen($description) > 50 && $length > 0) {
+                $length--;
+                $description = (string)iconv_substr($description, 0, $length, 'UTF-8');
+            }
+        } else {
+            if (preg_match('/[^\x20-\x7E]/', $description)) return $this->unsupported('conferences', 'This FreePBX host needs mbstring or iconv to safely compile a non-ASCII conference display name.');
+            $description = substr($description, 0, 50);
+        }
+        if (strlen($description) > 50 || !preg_match('//u', $description)) return $this->unsupported('conferences', 'Conference display name could not be represented as valid UTF-8 within the FreePBX field limit.');
+        $artifact = [
+            'schemaVersion' => 1,
+            'compiler' => 'conference-freepbx-bmo-v1',
+            'route' => 'FreePBX::Conferences',
+            'room' => $number,
+            'description' => $description,
+            'options' => implode('', $options),
+            'users' => $maximum,
+            'ownership' => ['module' => 'materialpbx', 'resourceId' => (string)$resource['id'], 'descriptionPrefix' => $ownershipPrefix]
+        ];
+        return ['status' => 'compiled', 'compiler' => $artifact['compiler'], 'reason' => 'The conference can be applied through the installed FreePBX 17 Conferences BMO API. FreePBX owns ext-meetme and its dynamic ConfBridge profiles.', 'artifact' => $artifact, 'diff' => [['operation' => 'replace', 'target' => 'freepbx-conference:' . $number, 'summary' => "Create or update the module-owned FreePBX conference {$number} with a {$maximum}-participant limit."]]];
     }
     private function previewVoicemail(array $resource): array
     {

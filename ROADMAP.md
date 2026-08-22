@@ -40,6 +40,8 @@
 - [x] Add bounded extension and credentialless PJSIP trunk compilers with explicit generation boundaries.
 - [x] Add bounded inbound/outbound route compilers with validated patterns, destinations, trunk order, and emergency constraints.
 - [x] Add bounded IVR, voicemail, and time-condition compilers covering every typed application feature subset.
+- [ ] Finish the guided typed conference editor and FreePBX 17 Conferences BMO compiler. Protocol/native focused checks pass, but the real built desktop exposed a blocking translucent and overlapping editor dialog that must be repaired and recaptured before completion.
+- [ ] Verify conference dialing, capacity, recording, waiting music, mute toggle, reload, and deletion on a live FreePBX 17/Asterisk 22 runtime.
 - [ ] Adapt deployment platform support for an inventoried host or provision a dedicated Debian 12 amd64 host.
 - [ ] Resolve external HTTP/HTTPS publishing without disturbing the unrelated service already using ports 80 and 443.
 - [x] Load module 0.1.0 on FreePBX 17, enable it, and verify creation of all three migration tables through `FreePBX::Database()`.

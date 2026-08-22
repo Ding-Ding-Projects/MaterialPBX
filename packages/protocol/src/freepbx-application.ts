@@ -4,7 +4,26 @@ const Id = z.string().min(1).max(128).regex(/^[A-Za-z0-9_.:@+-]+$/);
 const NumberPattern = z.string().min(1).max(64).regex(/^[0-9XZN*#+.!\[\]-]+$/);
 const Destination = z.object({ type: z.enum(["extension", "ivr", "queue", "ring-group", "voicemail", "terminate"]), id: Id.optional() }).strict();
 const Base = { id: Id, displayName: z.string().min(1).max(256), enabled: z.boolean(), revision: z.number().int().positive() };
-export const FreePbxApplicationFeatureSchema = z.enum(["extension", "trunk", "inbound-route", "outbound-route", "ivr", "queue", "ring-group", "voicemail", "time-condition"]);
+export const FreePbxConferenceConfigurationSchema = z.object({
+  number: z.string().regex(/^[0-9]{2,12}$/),
+  maxParticipants: z.number().int().min(2).max(200),
+  recordConference: z.boolean().default(false),
+  announceJoinLeave: z.boolean().default(false),
+  startMuted: z.boolean().default(false),
+  musicOnHoldWhenEmpty: z.boolean().default(false),
+  quiet: z.boolean().default(false)
+}).strict().superRefine((configuration, context) => {
+  if (configuration.quiet && configuration.announceJoinLeave) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["quiet"],
+      message: "Turn off quiet mode or turn off join and leave announcements. Quiet mode suppresses those announcements."
+    });
+  }
+});
+export type FreePbxConferenceConfiguration = z.infer<typeof FreePbxConferenceConfigurationSchema>;
+
+export const FreePbxApplicationFeatureSchema = z.enum(["extension", "trunk", "inbound-route", "outbound-route", "ivr", "queue", "ring-group", "conference", "voicemail", "time-condition"]);
 
 export const FreePbxApplicationRequestSchema = z.discriminatedUnion("feature", [
   z.object({ ...Base, feature: z.literal("extension"), configuration: z.object({ extension: z.string().regex(/^[0-9]{2,12}$/), callerIdName: z.string().max(80).optional(), voicemailMailbox: Id.optional() }).strict() }).strict(),
@@ -14,6 +33,7 @@ export const FreePbxApplicationRequestSchema = z.discriminatedUnion("feature", [
   z.object({ ...Base, feature: z.literal("ivr"), configuration: z.object({ announcementId: Id, timeoutSeconds: z.number().int().min(1).max(60), invalidDestination: Destination, entries: z.array(z.object({ digit: z.string().regex(/^[0-9*#]$/), destination: Destination }).strict()).max(12) }).strict() }).strict(),
   z.object({ ...Base, feature: z.literal("queue"), configuration: z.object({ number: z.string().regex(/^[0-9]{2,12}$/), strategy: z.enum(["ringall", "leastrecent", "fewestcalls", "random", "rrmemory"]), memberExtensionIds: z.array(Id).min(1).max(256), failoverDestination: Destination }).strict() }).strict(),
   z.object({ ...Base, feature: z.literal("ring-group"), configuration: z.object({ number: z.string().regex(/^[0-9]{2,12}$/), strategy: z.enum(["ringall", "hunt", "memoryhunt", "firstavailable"]), memberExtensionIds: z.array(Id).min(1).max(64), ringTimeSeconds: z.number().int().min(1).max(300), failoverDestination: Destination }).strict() }).strict(),
+  z.object({ ...Base, feature: z.literal("conference"), configuration: FreePbxConferenceConfigurationSchema }).strict(),
   z.object({ ...Base, feature: z.literal("voicemail"), configuration: z.object({ mailbox: z.string().regex(/^[0-9]{2,12}$/), email: z.string().email().max(254).optional(), attachAudio: z.boolean(), maxMessageSeconds: z.number().int().min(10).max(3600) }).strict() }).strict(),
   z.object({ ...Base, feature: z.literal("time-condition"), configuration: z.object({ timezone: z.string().min(1).max(64), windows: z.array(z.object({ weekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7), start: z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/), end: z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/) }).strict()).min(1).max(32), matchedDestination: Destination, unmatchedDestination: Destination }).strict() }).strict()
 ]);
@@ -30,5 +50,5 @@ export const FreePbxApplicationPlanSchema = z.object({
 export type FreePbxApplicationPlan = z.infer<typeof FreePbxApplicationPlanSchema>;
 
 export const FreePbxCompilationSchema = z.object({ status: z.enum(["compiled", "unsupported", "failed"]), compiler: z.string().max(128).nullable(), reason: z.string().min(1).max(1024), snapshotId: z.string().uuid().nullable(), diff: z.array(z.object({ operation: z.enum(["create", "replace", "remove", "unchanged"]), target: z.string().max(256), summary: z.string().max(512) })).max(32) });
-export const FreePbxApplicationResultSchema = z.object({ plan: FreePbxApplicationPlanSchema, storedDesired: z.boolean(), compilation: FreePbxCompilationSchema, applied: z.boolean(), reloaded: z.boolean(), runtimeVerification: z.literal("pending"), partialFailure: z.boolean(), rollback: z.object({ attempted: z.boolean(), succeeded: z.boolean().nullable(), snapshotId: z.string().uuid().nullable(), reason: z.string().max(1024).nullable() }), warning: z.string().max(2048).nullable() });
+export const FreePbxApplicationResultSchema = z.object({ plan: FreePbxApplicationPlanSchema, storedDesired: z.boolean().nullable(), compilation: FreePbxCompilationSchema, applied: z.boolean(), reloaded: z.boolean(), runtimeVerification: z.literal("pending"), partialFailure: z.boolean(), rollback: z.object({ attempted: z.boolean(), succeeded: z.boolean().nullable(), snapshotId: z.string().uuid().nullable(), reason: z.string().max(1024).nullable() }), warning: z.string().max(2048).nullable() });
 export type FreePbxApplicationResult = z.infer<typeof FreePbxApplicationResultSchema>;

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, resolveComponent, shallowRef, watch, type PropType } from 'vue'
-import { createDisconnectedClient, createHttpClient, MaterialPbxRequestError, type CapabilitySnapshot, type ConnectionState, type HealthSnapshot, type MaterialPbxClient, type PbxResource, type PbxResourceKind } from '@materialpbx/client'
+import { createDisconnectedClient, createHttpClient, listLocalDrafts, MaterialPbxRequestError, removeLocalDraft, type CapabilitySnapshot, type ConnectionState, type HealthSnapshot, type MaterialPbxClient, type PbxResource, type PbxResourceKind } from '@materialpbx/client'
 import { mdiAccountGroupOutline, mdiBellOutline, mdiBookOpenPageVariantOutline, mdiChevronRight, mdiCogOutline, mdiDotsVertical, mdiDownloadOutline, mdiGithub, mdiInformationOutline, mdiMagnify, mdiMessageProcessingOutline, mdiMicrosoftWindows, mdiPhoneIncomingOutline, mdiRegex, mdiRocketLaunchOutline, mdiServerNetwork, mdiShapeOutline, mdiSproutOutline, mdiTuneVariant, mdiVoicemail } from '@mdi/js'
 import { contrastRatio, RAINBOW_SENTINEL, translateColor } from './color'
+import { appendConferenceDigit, conferenceDefaults, conferenceFieldErrors, conferencePresetValues, conferenceReviewItems, removeConferenceDigit, serializeConferenceDraft, validateConferenceDraft, type ConferenceDraft, type ConferenceField, type ConferencePreset } from './conference'
 import { compileSearch } from './regex'
 
 const props = withDefaults(defineProps<{ surface?: 'web' | 'desktop' | 'site' }>(), { surface: 'web' })
@@ -453,9 +454,14 @@ const connectionLabel = computed(() => props.surface === 'site' ? 'Documentation
 const connectionColor = computed(() => props.surface === 'site' ? 'info' : ({ connected: 'success', degraded: 'warning', connecting: 'info', disconnected: 'warning', offline: 'error', 'permission-denied': 'warning', incompatible: 'error' }[connection.value]))
 
 async function loadResources(kind: PbxResourceKind) {
-  if (!['connected', 'degraded'].includes(connection.value)) return
+  const localDrafts = listLocalDrafts(kind)
+  if (!['connected', 'degraded'].includes(connection.value)) { resourceRows.value[kind] = localDrafts; return }
   resourceLoading.value = true
-  try { resourceRows.value[kind] = await client.value.list(kind); if (resourceAccess.value[kind] !== 'write') resourceAccess.value[kind] = 'read' }
+  try {
+    const serverResources = await client.value.list(kind)
+    resourceRows.value[kind] = [...localDrafts, ...serverResources]
+    if (resourceAccess.value[kind] !== 'write') resourceAccess.value[kind] = 'read'
+  }
   catch (error) { if (error instanceof MaterialPbxRequestError && error.state === 'permission-denied') resourceAccess.value[kind] = 'denied'; notify('Could not load PBX records', error instanceof Error ? error.message : 'The server returned an unreadable resource list.', error instanceof MaterialPbxRequestError && error.state === 'permission-denied' ? 'warning' : 'error') }
   finally { resourceLoading.value = false }
 }
@@ -473,7 +479,7 @@ async function runPreflight() {
 }
 
 function disconnectServer() {
-  client.value = createDisconnectedClient(); connection.value = 'disconnected'; connectionMessage.value = 'Disconnected by this user. The saved endpoint remains available for the next preflight.'; healthSnapshot.value = null; capabilitySnapshot.value = null; resourceRows.value = {}; resourceAccess.value = {}; serverCredential.value = ''; notify('Control service disconnected', 'The in-memory credential was discarded. No live PBX changes can be made until preflight succeeds again.', 'info')
+  client.value = createDisconnectedClient(); connection.value = 'disconnected'; connectionMessage.value = 'Disconnected by this user. The saved endpoint remains available for the next preflight.'; healthSnapshot.value = null; capabilitySnapshot.value = null; resourceRows.value = {}; resourceAccess.value = {}; serverCredential.value = ''; if (isResourcePage(activePage.value)) resourceRows.value[activePage.value] = listLocalDrafts(activePage.value); notify('Control service disconnected', 'The in-memory credential was discarded. No live PBX changes can be made until preflight succeeds again.', 'info')
 }
 function clearSavedEndpoint() { localStorage.removeItem('materialpbx.control-endpoint.v1'); serverUrl.value = ''; notify('Saved endpoint cleared', 'Only the non-secret server address was removed. No credential was stored here.', 'info') }
 
@@ -560,6 +566,7 @@ const resourceForms: Record<string, Array<{ key: string; label: string; type: st
     { key: 'failoverDestination', label: 'No-answer destination', type: 'select', options: ['Voicemail', 'Queue', 'Announcement', 'Hang up'], help: 'The next safe step when nobody in the group answers.' },
     { key: 'enabled', label: 'Accept calls', type: 'switch', help: 'Turn the group off without deleting its plan.' },
   ],
+  conferences: [],
   voicemail: [
     { key: 'mailbox', label: 'Mailbox number', type: 'number', help: 'A validated 2 to 12 digit numeric mailbox.' },
     { key: 'email', label: 'Notification email', type: 'text', help: 'Optional. Used only when the server has a verified mail route.' },
@@ -585,7 +592,7 @@ const resourceForms: Record<string, Array<{ key: string; label: string; type: st
   ],
 }
 
-const visualFeatureKinds = new Set<PbxResourceKind>(['extensions','trunks','inbound-routes','outbound-routes','ivrs','queues','ring-groups','observability','paired-servers'])
+const visualFeatureKinds = new Set<PbxResourceKind>(['extensions','trunks','inbound-routes','outbound-routes','ivrs','queues','ring-groups','conferences','observability','paired-servers'])
 const visualFeature = computed(() => isResourcePage(activePage.value) && visualFeatureKinds.has(activePage.value) ? ({
   extensions: { eyebrow: 'PEOPLE AND PHONES', lead: 'Give each person a short number and decide which real devices ring.', default: 'Suggested start: three-digit extensions beginning at 100, voicemail on, 25-second ring time.', icon: '☎' },
   trunks: { eyebrow: 'PHONE COMPANY LINKS', lead: 'Configure a bounded PJSIP connection and see which outside links are healthy, encrypted, and within their call limits.', default: 'Suggested start: PJSIP with TLS when supported, the provider’s documented host and port, then add credentials only through its reviewed flow.', icon: '⇄' },
@@ -594,6 +601,7 @@ const visualFeature = computed(() => isResourcePage(activePage.value) && visualF
   ivrs: { eyebrow: 'VISUAL CALL-FLOW CANVAS', lead: 'Build the caller journey from greeting to key choices and safe fallbacks.', default: 'Suggested start: operator on 0, repeat once after an invalid key, then use a clear fallback.', icon: '⑴' },
   queues: { eyebrow: 'WAITING-LINE CONTROL', lead: 'Balance caller wait time, available people, and a humane fallback.', default: 'Suggested start: longest-idle strategy, 20-second attempts, and a visible maximum wait.', icon: '≋' },
   'ring-groups': { eyebrow: 'RING GROUP CONTROL', lead: 'Ring several existing phones together, then continue to one explicit no-answer destination.', default: 'Suggested start: ring all members for 20 seconds, then send the call to a verified voicemail box.', icon: '◎' },
+  conferences: { eyebrow: 'CONFERENCE ROOM CONTROL', lead: 'Give a shared conversation one number, a clear capacity, and participant behavior everyone can review before it goes live.', default: 'Suggested start: room 700, 20 participants, and every optional behavior off. MaterialPBX never treats Asterisk’s unlimited room size as a safe default.', icon: '◉' },
   observability: { eyebrow: 'LIVE OPERATIONS', lead: 'Read PBX health, active calls, registrations, warnings, and the exact time they were checked.', default: 'This view is read-only unless the server explicitly grants an action capability.', icon: '◉' },
   'paired-servers': { eyebrow: 'SERVER PAIRING', lead: 'Connect another compatible PBX with the smallest useful permission set.', default: 'Suggested start: encrypted private-extension calling only; add failover or presence after verification.', icon: '⛓' },
 }[activePage.value] as { eyebrow: string; lead: string; default: string; icon: string }) : null)
@@ -605,11 +613,18 @@ const genericForm = [
 ]
 const editorOpen = ref(false)
 const editingResourceId = ref<string | null>(null)
+const editingResourceRevision = ref<number | undefined>()
+const editingResourceProvenance = ref<PbxResource['provenance']>()
 const editorValues = reactive<Record<string, string | number | boolean>>({ name: '', enabled: true, ringSeconds: 25, concurrency: 4 })
 const queueMembers = ref<Array<{ id: string; label: string }>>([])
 const listMembers = ref<Array<{ id: string; label: string }>>([])
 const editorBaselineSnapshot = ref('')
 const editorIsNew = ref(false)
+const editorCloseConfirmOpen = ref(false)
+const editorReturnFocus = ref<HTMLElement | null>(null)
+const conferenceRoomNameInput = ref<unknown>(null)
+const conferenceNumberControl = ref<HTMLElement | null>(null)
+const conferenceCapacityInput = ref<unknown>(null)
 const currentForm = computed(() => resourceForms[activePage.value] ?? genericForm)
 const membersKey = computed(() => currentForm.value.find((field) => field.type === 'members')?.key ?? '')
 const activeMembers = computed(() => membersKey.value === 'memberExtensionIds' ? queueMembers.value : listMembers.value)
@@ -622,9 +637,17 @@ const membersEmptyMessage = computed(() => membersKey.value === 'memberExtension
   : `No ${membersEditorLabel.value.toLowerCase()} yet. This feature needs at least one item.`)
 const editorSnapshot = () => JSON.stringify({ values: editorValues, queueMembers: queueMembers.value, listMembers: listMembers.value })
 function openResourceEditor(resource?: PbxResource) {
+  editorReturnFocus.value = document.activeElement instanceof HTMLElement ? document.activeElement : null
   editingResourceId.value = resource?.id ?? null
+  editingResourceRevision.value = resource?.revision
+  editingResourceProvenance.value = resource?.provenance
   Object.keys(editorValues).forEach((key) => delete editorValues[key])
-  Object.assign(editorValues, resource?.details ?? {}, { name: resource?.name ?? '', enabled: resource?.enabled ?? true, ringSeconds: resource?.details?.ringSeconds ?? 25, concurrency: resource?.details?.concurrency ?? 4, tls: resource?.details?.tls ?? true })
+  if (activePage.value === 'conferences') {
+    const defaults = conferenceDefaults()
+    Object.assign(editorValues, resource?.details ?? {}, { name: resource?.name ?? defaults.roomName, enabled: resource?.enabled ?? defaults.enabled })
+  } else {
+    Object.assign(editorValues, resource?.details ?? {}, { name: resource?.name ?? '', enabled: resource?.enabled ?? true, ringSeconds: resource?.details?.ringSeconds ?? 25, concurrency: resource?.details?.concurrency ?? 4, tls: resource?.details?.tls ?? true })
+  }
   queueMembers.value = Array.isArray(resource?.details?.memberExtensionIds)
     ? resource.details.memberExtensionIds.map((value: unknown) => ({ id: crypto.randomUUID(), label: String(value) }))
     : []
@@ -635,25 +658,85 @@ function openResourceEditor(resource?: PbxResource) {
   editorBaselineSnapshot.value = editorSnapshot()
   editorOpen.value = true
 }
-function discardEditorDraft() {
+function stageResourceEnabled(resource: PbxResource, enabled: boolean | null) {
+  openResourceEditor(resource)
+  editorValues.enabled = enabled === true
+}
+const editorIsDirty = computed(() => editorSnapshot() !== editorBaselineSnapshot.value)
+function finishEditorClose() {
   editorOpen.value = false
+  editorCloseConfirmOpen.value = false
   editorIsNew.value = false
   editorBaselineSnapshot.value = editorSnapshot()
+  nextTick(() => editorReturnFocus.value?.focus())
+}
+function requestEditorClose(value = false) {
+  if (value) { editorOpen.value = true; return }
+  if (editorIsDirty.value) { editorCloseConfirmOpen.value = true; return }
+  finishEditorClose()
+}
+function discardEditorDraft() { requestEditorClose(false) }
+function confirmDiscardEditorDraft() {
   notify('Editor draft discarded', 'The open resource editor was closed without saving its current values.', 'info')
+  finishEditorClose()
 }
 async function saveEditor() {
   if (!isResourcePage(activePage.value)) { recordHistory(`Updated ${page.value.label} local draft`); editorOpen.value = false; return }
+  if (activePage.value === 'conferences' && conferenceErrors.value.length) {
+    notify('Correct the conference settings', conferenceErrors.value.join(' '), 'warning')
+    await focusConferenceFirstError()
+    return
+  }
   const name = String(editorValues.name || editorValues.number || `${page.value.label} draft`).trim()
-  const details: Record<string, unknown> = { ...editorValues }
-  if (membersKey.value === 'memberExtensionIds') details.memberExtensionIds = queueMembers.value.map((member) => member.label)
-  else if (membersKey.value) details[membersKey.value] = listMembers.value.map((member) => member.label)
-  const resource: PbxResource = { id: editingResourceId.value ?? `draft-${crypto.randomUUID()}`, kind: activePage.value, name, summary: page.value.description, enabled: editorValues.enabled !== false, tags: [], updatedAt: new Date().toISOString(), details }
-  if (!['connected', 'degraded'].includes(connection.value)) { recordHistory(`Saved ${page.value.label} local draft`); notify('Saved locally only', 'No compatible PBX connection is live. This draft was not sent to a phone system.', 'warning'); editorOpen.value = false; return }
+  const details: Record<string, unknown> = activePage.value === 'conferences' ? serializeConferenceDraft(conferenceDraft.value) : { ...editorValues }
+  if (activePage.value !== 'conferences' && membersKey.value === 'memberExtensionIds') details.memberExtensionIds = queueMembers.value.map((member) => member.label)
+  else if (activePage.value !== 'conferences' && membersKey.value) details[membersKey.value] = listMembers.value.map((member) => member.label)
+  const resource: PbxResource = { id: editingResourceId.value ?? `draft-${crypto.randomUUID()}`, kind: activePage.value, name, summary: page.value.description, enabled: editorValues.enabled === true, tags: [], updatedAt: new Date().toISOString(), revision: editingResourceRevision.value, provenance: editingResourceProvenance.value, details }
+  if (!['connected', 'degraded'].includes(connection.value)) {
+    const local = await client.value.save(resource)
+    if (!local.ok || !local.resource) { notify('Local draft was not saved', local.message, 'error'); return }
+    resourceRows.value[activePage.value] = await client.value.list(activePage.value)
+    recordHistory(`Saved ${page.value.label} local draft`)
+    notify('Saved locally only', 'No compatible PBX connection is live. This versioned draft is retained in local browser storage and was not sent to a phone system.', 'warning')
+    finishEditorClose()
+    return
+  }
   if (!canAttemptWriteCurrent.value) { notify('Read-only server permission', `A previous request was refused for ${page.value.label}. No change was sent.`, 'warning'); return }
   const result = await client.value.save(resource)
   if (!result.ok) { if (result.state === 'permission-denied') resourceAccess.value[activePage.value] = currentAccess.value === 'read' ? 'read-only' : 'denied'; notify('PBX change was not applied', result.message, result.state === 'permission-denied' ? 'warning' : 'error'); return }
-  resourceAccess.value[activePage.value] = 'write'; await loadResources(activePage.value); recordHistory(`Applied ${page.value.label} change through the control service`); notify('PBX change confirmed', result.message, 'success'); editorOpen.value = false
+  if (editingResourceProvenance.value === 'local-draft') {
+    try { removeLocalDraft(activePage.value, resource.id) }
+    catch (error) { notify('PBX saved, but local cleanup did not finish', error instanceof Error ? error.message : 'The local draft could not be removed. It remains labelled as local and can be removed after storage access is restored.', 'warning') }
+  }
+  resourceAccess.value[activePage.value] = 'write'; await loadResources(activePage.value)
+  if (activePage.value === 'conferences') {
+    recordHistory('Conference configuration accepted by the control service; runtime verification pending')
+    const application = result.application
+    const outcome = application ? `Applied: ${application.applied ? 'yes' : 'no'}. Reloaded: ${application.reloaded ? 'yes' : 'no'}. Runtime verification: ${application.runtimeVerification}.` : 'The server did not return a structured native application result.'
+    notify('Conference settings saved', `${result.message} ${outcome} A saved room is not described as live until a real call enters it.`, !application || !application.applied || !application.reloaded || application.partialFailure ? 'warning' : 'success')
+  } else {
+    recordHistory(`Applied ${page.value.label} change through the control service`)
+    notify('PBX change confirmed', result.message, 'success')
+  }
+  finishEditorClose()
 }
+
+const conferenceDraft = computed<ConferenceDraft>(() => ({ ...editorValues, roomName: editorValues.name, enabled: editorValues.enabled } as ConferenceDraft))
+const conferenceErrorsByField = computed(() => activePage.value === 'conferences' ? conferenceFieldErrors(conferenceDraft.value) : {})
+const conferenceErrors = computed(() => activePage.value === 'conferences' ? validateConferenceDraft(conferenceDraft.value) : [])
+const conferenceReview = computed(() => conferenceReviewItems(conferenceDraft.value))
+const conferenceErrorMessages = (field: ConferenceField) => conferenceErrorsByField.value[field] ?? []
+async function focusConferenceFirstError() {
+  const field = (['roomName', 'enabled', 'number', 'maxParticipants', 'recordConference', 'announceJoinLeave', 'startMuted', 'musicOnHoldWhenEmpty', 'quiet'] as ConferenceField[]).find(candidate => conferenceErrorMessages(candidate).length)
+  await nextTick()
+  if (field === 'roomName') componentElement(conferenceRoomNameInput.value)?.querySelector('input')?.focus()
+  else if (field === 'number') conferenceNumberControl.value?.querySelector<HTMLElement>('button:not([disabled])')?.focus()
+  else if (field === 'maxParticipants') componentElement(conferenceCapacityInput.value)?.querySelector('input')?.focus()
+  else document.querySelector<HTMLElement>(`[data-conference-field="${field}"] input`)?.focus()
+}
+function applyConferencePreset(preset: ConferencePreset) { Object.assign(editorValues, conferencePresetValues(preset)) }
+function enterConferenceDigit(digit: number) { editorValues.number = appendConferenceDigit(editorValues.number ?? '', digit) }
+function backspaceConferenceDigit() { editorValues.number = removeConferenceDigit(editorValues.number ?? '') }
 
 async function validateOnboardingTest() {
   if (!onboarding.emergencyConfirmed || !onboarding.testDestination) return notify('More information needed', 'Confirm the emergency-calling policy and enter a normal test destination you control.', 'warning')
@@ -670,7 +753,7 @@ function removeMember(id: string) {
   else listMembers.value = listMembers.value.filter((member) => member.id !== id)
 }
 
-watch(activePage, (value) => { if (isResourcePage(value)) void loadResources(value) })
+watch(activePage, (value) => { if (isResourcePage(value)) void loadResources(value) }, { immediate: true })
 
 interface Notice { id: number; title: string; body: string; level: 'info' | 'success' | 'warning' | 'error'; at: string }
 const notices = ref<Notice[]>([])
@@ -1337,7 +1420,7 @@ onBeforeUnmount(() => {
             <v-card class="pa-5"><span>Where real controls run</span><strong>Installed + self-hosted</strong><small>Use the installed desktop lab with your own dedicated Debian 12 production host.</small></v-card>
           </div>
           <div v-else class="feature-metrics">
-            <v-card class="pa-5"><span>Live records</span><strong>{{ ['connected','degraded'].includes(connection) ? currentResources.length : '—' }}</strong><small>{{ ['connected','degraded'].includes(connection) ? currentAccess === 'denied' ? 'Resource request was refused' : 'Returned by this server' : 'Connect to load real records' }}</small></v-card>
+            <v-card class="pa-5"><span>Live records</span><strong>{{ ['connected','degraded'].includes(connection) ? currentResources.filter(item => item.provenance !== 'local-draft').length : '—' }}</strong><small>{{ ['connected','degraded'].includes(connection) ? currentAccess === 'denied' ? 'Resource request was refused' : 'Returned by this server; local drafts are labelled separately' : 'Connect to load real records' }}</small></v-card>
             <v-card class="pa-5"><span>Observed access</span><strong>{{ currentAccess === 'write' ? 'Write confirmed' : currentAccess === 'read-only' ? 'Read only' : currentAccess === 'denied' ? 'Refused' : currentAccess === 'read' ? 'Read confirmed' : 'Not checked' }}</strong><small>The capability registry is evidence, not authorization. Access changes only after a real resource response.</small></v-card>
             <v-card class="pa-5"><span>PBX health</span><strong>{{ connectionLabel }}</strong><small>{{ healthSnapshot?.warnings[0] ?? connectionMessage }}</small></v-card>
           </div>
@@ -1347,7 +1430,7 @@ onBeforeUnmount(() => {
           </section>
           <div class="toolbar"><v-text-field v-model="featureSearch.query" :label="`Search ${page.label}`" prepend-inner-icon="mdi-magnify" clearable/><v-btn icon="mdi-regex" :aria-label="`Open regex builder for ${page.label} search`" :color="featureSearch.regex ? 'primary' : undefined" @click="openRegexBuilder(`${page.label} search`, 'feature', $event)"/><SearchablePicker v-model="featureStatus" label="Status" :items="['All','Enabled','Disabled','Needs attention']" no-data-text="No matching statuses"/><v-btn @click="exportView('JSON')">Export</v-btn><v-btn color="error" variant="tonal" @click="openSuperConfirm($event)">Delete local draft…</v-btn></div><p class="search-result-count" role="status">{{ filteredCurrentResources.length }} of {{ currentResources.length }} records shown</p><p v-if="featureCompiled.error" class="text-error" role="alert">{{ featureCompiled.error }}</p>
           <div class="control-room-grid" :aria-busy="resourceLoading">
-            <v-card v-for="resource in filteredCurrentResources" :key="resource.id" class="resource-card pa-5"><div class="resource-card-title"><div><h2>{{ resource.name }}</h2><p>{{ resource.summary || page.description }}</p></div><v-switch :model-value="resource.enabled" hide-details :label="`${resource.name} enabled`" :disabled="!canAttemptWriteCurrent" @update:model-value="openResourceEditor(resource)"/></div><div class="resource-tags"><v-chip v-for="tag in resource.tags" :key="tag" size="small">{{ tag }}</v-chip><v-chip size="small" variant="outlined">Updated {{ resource.updatedAt || 'time not reported' }}</v-chip></div><v-btn variant="text" :disabled="!canAttemptWriteCurrent" @click="openResourceEditor(resource)">Open visual editor</v-btn></v-card>
+            <v-card v-for="resource in filteredCurrentResources" :key="`${resource.provenance ?? 'server'}:${resource.id}`" class="resource-card pa-5"><div class="resource-card-title"><div><h2>{{ resource.name }}</h2><p>{{ resource.summary || page.description }}</p></div><v-switch :model-value="resource.enabled" hide-details :label="`${resource.name} accepts calls`" :disabled="!canAttemptWriteCurrent" @update:model-value="stageResourceEnabled(resource, $event)"/></div><div class="resource-tags"><v-chip v-if="resource.provenance === 'local-draft'" size="small" color="warning" variant="tonal">Local draft · not sent</v-chip><v-chip v-for="tag in resource.tags" :key="tag" size="small">{{ tag }}</v-chip><v-chip size="small" variant="outlined">Updated {{ resource.updatedAt || 'time not reported' }}</v-chip></div><v-btn variant="text" :disabled="!canAttemptWriteCurrent" @click="openResourceEditor(resource)">{{ resource.provenance === 'local-draft' && ['connected','degraded'].includes(connection) ? 'Review and send draft' : 'Open visual editor' }}</v-btn></v-card>
             <v-card v-if="!currentResources.length" class="feature-empty pa-8"><div class="empty-icon">{{ visualFeature.icon }}</div><h2>{{ props.surface === 'site' ? 'Understand the feature before configuring it' : currentAccess === 'denied' ? 'Resource permission refused' : ['connected','degraded'].includes(connection) ? 'No records returned for this feature' : 'Connect to load real PBX records' }}</h2><p>{{ props.surface === 'site' ? 'This guide explains what the installed controls and self-hosted Debian 12 service do, what a safe starting point looks like, and which related feature to learn next. It never shows fake live records.' : currentAccess === 'denied' ? 'The authenticated resource request returned a permission refusal. Ask an administrator for the narrow resource permission and retry.' : ['connected','degraded'].includes(connection) ? 'The control service returned an empty list. MaterialPBX does not insert sample live data.' : 'You can review the guided controls and save a local draft. Nothing will be presented as live until preflight succeeds.' }}</p><v-btn v-if="props.surface !== 'site' && !['connected','degraded'].includes(connection)" color="primary" @click="connectDialog=true">Connect a server</v-btn><v-btn v-else-if="props.surface !== 'site' && canAttemptWriteCurrent" color="primary" @click="openResourceEditor()">Create the first item</v-btn><v-btn v-else-if="props.surface === 'site'" variant="tonal" @click="openPage('docs')">Find related guides</v-btn></v-card><v-card v-else-if="!filteredCurrentResources.length" class="feature-empty pa-8"><h2>No records match the active search and status filter</h2><p>Clear the search, choose All statuses, or correct the regular expression.</p></v-card>
           </div>
         </template>
@@ -1365,7 +1448,101 @@ onBeforeUnmount(() => {
 
     <v-dialog v-model="connectDialog" max-width="720"><v-card><v-card-title>Connect a PBX control service</v-card-title><v-card-text><p>Enter the HTTPS address and an admin credential for this session. Only the successful non-secret endpoint is saved locally. The credential stays in memory, is removed from this form immediately, and is discarded on disconnect or reload.</p><v-text-field v-model="serverUrl" label="Control-service address" type="url" placeholder="https://pbx.example.com" hint="Use HTTPS. HTTP is accepted only for localhost development." persistent-hint/><v-text-field v-model="serverCredential" label="Admin credential for this session" type="password" autocomplete="off" hint="Sent as an Authorization bearer credential. Never stored in settings, logs, history, or exports." persistent-hint/><v-alert :type="connection === 'permission-denied' ? 'warning' : ['offline','incompatible'].includes(connection) ? 'error' : 'info'" variant="tonal"><strong>{{ connectionLabel }}</strong><p>{{ connectionMessage }}</p></v-alert><div class="preflight-list"><div><v-icon icon="mdi-shield-check-outline"/><span>Public health at <code>/healthz</code></span></div><div><v-icon icon="mdi-api"/><span>Evidence registry schema and warnings</span></div><div><v-icon icon="mdi-account-key-outline"/><span>Authenticated system status</span></div><div><v-icon icon="mdi-phone-check-outline"/><span>Runtime-probed adapters and identity</span></div></div><p v-if="connection === 'permission-denied'">Recovery: enter a permitted admin credential and run preflight again. The capability registry describes evidence; it does not grant authorization.</p><p v-else-if="connection === 'offline'">Recovery: verify the address, trusted certificate, service process, firewall, and network route, then retry.</p><p v-else-if="connection === 'incompatible'">Recovery: correct the endpoint or update the MaterialPBX control service to a compatible API version.</p></v-card-text><v-card-actions><v-btn variant="text" :disabled="!serverUrl" @click="clearSavedEndpoint">Clear saved endpoint</v-btn><v-spacer/><v-btn @click="connectDialog=false;serverCredential=''">Cancel</v-btn><v-btn color="primary" :loading="connection === 'connecting'" :disabled="!serverUrl.trim() || !serverCredential" @click="runPreflight">Run real preflight</v-btn></v-card-actions></v-card></v-dialog>
 
-    <v-dialog v-model="editorOpen" max-width="760"><v-card><v-card-title>{{ editingResourceId ? 'Edit' : 'Create' }} {{ page.label }}</v-card-title><v-card-subtitle>{{ page.description }}</v-card-subtitle><v-card-text><template v-for="field in currentForm" :key="field.key"><v-text-field v-if="field.type==='text'" v-model="editorValues[field.key]" :label="field.label" :hint="field.help" persistent-hint/><v-number-input v-else-if="field.type==='number'" v-model="editorValues[field.key]" :label="field.label" :hint="field.help" persistent-hint/><SearchablePicker v-else-if="field.type==='select'" v-model="editorValues[field.key]" :label="field.label" :items="field.options" :hint="field.help" persistent-hint/><v-slider v-else-if="field.type==='slider'" v-model="editorValues[field.key]" :label="field.label" :min="1" :max="field.key==='ringSeconds'?120:64" thumb-label/><v-switch v-else-if="field.type==='switch'" v-model="editorValues[field.key]" :label="field.label" :hint="field.help" persistent-hint/></template><section v-if="currentForm.some((field) => field.type === 'members')" class="member-editor" :aria-label="membersEditorLabel"><h2>{{ membersEditorLabel }}</h2><v-list density="compact"><v-list-item v-for="member in activeMembers" :key="member.id"><v-text-field v-model="member.label" :label="membersFieldLabel" hint="Use the exact validated identifier described by this field." persistent-hint /><template #append><v-btn icon="mdi-delete-outline" variant="text" aria-label="Remove item" @click="removeMember(member.id)" /></template></v-list-item></v-list><p v-if="!activeMembers.length">{{ membersEmptyMessage }}</p><v-btn prepend-icon="mdi-plus" @click="addMember">Add item</v-btn></section><v-alert v-if="['connected','degraded'].includes(connection)" type="info" variant="tonal">Saving sends this typed resource to the authenticated control service. Success appears only after the server confirms it.</v-alert><v-alert v-else type="warning" variant="tonal">Saving creates a local draft only. No PBX is connected.</v-alert></v-card-text><v-card-actions><v-spacer/><v-btn @click="discardEditorDraft">Cancel</v-btn><v-btn color="primary" :disabled="['connected','degraded'].includes(connection) && !canAttemptWriteCurrent" @click="saveEditor">{{ ['connected','degraded'].includes(connection) ? 'Apply through control service' : 'Save local draft' }}</v-btn></v-card-actions></v-card></v-dialog>
+    <v-dialog :model-value="editorOpen" :max-width="activePage === 'conferences' ? 920 : 760" @update:model-value="requestEditorClose">
+      <v-card>
+        <v-card-title>{{ editingResourceId ? 'Edit' : 'Create' }} {{ page.label }}</v-card-title>
+        <v-card-subtitle>{{ page.description }}</v-card-subtitle>
+        <v-card-text>
+          <section v-if="activePage === 'conferences'" class="conference-editor" aria-label="Guided conference room settings">
+            <v-alert v-if="editorIsNew" type="info" variant="tonal" title="Visible starting values">
+              A new room starts at number 700 with a 20-person cap. Recording, recorded-name announcements, start muted, waiting music, and quiet mode all start off. The cap is a MaterialPBX suggestion because Asterisk’s own unlimited default is outside this guided 2–200 range.
+            </v-alert>
+            <v-alert v-if="editingResourceProvenance === 'local-draft'" type="warning" variant="tonal" title="Local draft · review before sending">
+              This versioned draft came from local browser storage and has not been sent to a PBX. Connecting does not merge or apply it. Review every value, then choose Review and send to control service explicitly.
+            </v-alert>
+
+            <section v-if="editorIsNew" class="conference-presets" aria-labelledby="conference-presets-heading">
+              <div><h2 id="conference-presets-heading">Start from a preset</h2><p>Each preset changes the real controls below. You can adjust every value before saving.</p></div>
+              <div class="conference-preset-actions">
+                <v-btn variant="tonal" @click="applyConferencePreset('small')">Small conversation · 6</v-btn>
+                <v-btn variant="tonal" @click="applyConferencePreset('team')">Team meeting · 20</v-btn>
+                <v-btn variant="tonal" @click="applyConferencePreset('event')">Quiet event · 100</v-btn>
+              </div>
+            </section>
+
+            <section class="conference-section" aria-labelledby="conference-room-heading">
+              <div class="conference-section-copy"><p class="conference-kicker">ROOM SETTINGS</p><h2 id="conference-room-heading">How people reach the room</h2><p>These values belong to the shared room rather than to one caller.</p></div>
+              <v-text-field ref="conferenceRoomNameInput" v-model="editorValues.name" data-conference-field="roomName" label="Room name" maxlength="80" counter="80" :error-messages="conferenceErrorMessages('roomName')" hint="Use 1 to 80 characters. This label helps operators recognize the room; callers dial the number below." persistent-hint />
+              <v-switch v-model="editorValues.enabled" data-conference-field="enabled" color="primary" label="Accept calls" :error-messages="conferenceErrorMessages('enabled')" hint="Turn this off to keep the room definition without accepting callers. The change is applied only when you save." persistent-hint>
+                <template #append><v-chip size="small" variant="outlined">{{ editorValues.enabled === true ? 'On' : editorValues.enabled === false ? 'Off' : 'Choose on or off' }}</v-chip></template>
+              </v-switch>
+              <div ref="conferenceNumberControl" class="conference-number-control" role="group" aria-label="Conference number dial pad" aria-describedby="conference-number-help conference-number-error">
+                <div class="conference-number-display"><span>Conference number</span><output aria-live="polite">{{ String(editorValues.number ?? '') || 'No digits yet' }}</output><small id="conference-number-help">Use 2 to 12 digits. People dial this number to enter the room.</small><p v-if="conferenceErrorMessages('number').length" id="conference-number-error" class="text-error" role="alert">{{ conferenceErrorMessages('number').join(' ') }}</p></div>
+                <div class="conference-dial-pad">
+                  <v-btn v-for="digit in [1,2,3,4,5,6,7,8,9,0]" :key="digit" variant="tonal" :aria-label="`Add digit ${digit} to conference number`" :disabled="String(editorValues.number ?? '').length >= 12" @click="enterConferenceDigit(digit)">{{ digit }}</v-btn>
+                  <v-btn variant="outlined" :disabled="!String(editorValues.number ?? '')" @click="backspaceConferenceDigit">Backspace</v-btn>
+                  <v-btn variant="text" :disabled="!String(editorValues.number ?? '')" @click="editorValues.number = ''">Clear</v-btn>
+                </div>
+              </div>
+              <div class="conference-capacity-control">
+                <div><label for="conference-capacity-slider">Maximum participants</label><p>FreePBX refuses additional callers after this whole-number limit.</p></div>
+                <v-number-input ref="conferenceCapacityInput" v-model="editorValues.maxParticipants" aria-label="Maximum participants stepper" :min="2" :max="200" :step="1" control-variant="split" :error-messages="conferenceErrorMessages('maxParticipants')" />
+                <v-slider id="conference-capacity-slider" v-model="editorValues.maxParticipants" :min="2" :max="200" :step="1" thumb-label="always" aria-label="Maximum participants slider" />
+              </div>
+              <v-switch v-model="editorValues.recordConference" data-conference-field="recordConference" color="primary" label="Record the conference" :error-messages="conferenceErrorMessages('recordConference')" :hint="editorIsNew ? 'Off by default. When on, FreePBX starts recording when the first active participant enters and stops after the last leaves.' : 'When on, FreePBX starts recording when the first active participant enters and stops after the last leaves.'" persistent-hint>
+                <template #append><v-chip size="small" variant="outlined">{{ editorValues.recordConference ? 'On' : editorIsNew ? 'Off · default' : 'Off' }}</v-chip></template>
+              </v-switch>
+              <v-alert v-if="editorValues.recordConference" type="warning" variant="tonal" title="Recording needs an operating policy">
+                Files go to the PBX recording store. Retention, access, and export are separate operator choices. Follow every notice and consent rule that applies where callers are located.
+              </v-alert>
+            </section>
+
+            <section class="conference-section" aria-labelledby="conference-participant-heading">
+              <div class="conference-section-copy"><p class="conference-kicker">PARTICIPANT SETTINGS</p><h2 id="conference-participant-heading">What each joining caller experiences</h2><p>FreePBX applies these options to each ordinary participant as they enter.</p></div>
+              <v-switch v-model="editorValues.announceJoinLeave" data-conference-field="announceJoinLeave" color="primary" label="Announce who joins and leaves" :error-messages="conferenceErrorMessages('announceJoinLeave')" :hint="editorIsNew ? 'Off by default. When on, each caller records their name, and FreePBX plays that recorded name when they join or leave.' : 'When on, each caller records their name, and FreePBX plays that recorded name when they join or leave.'" persistent-hint>
+                <template #append><v-chip size="small" variant="outlined">{{ editorValues.announceJoinLeave ? 'On' : editorIsNew ? 'Off · default' : 'Off' }}</v-chip></template>
+              </v-switch>
+              <v-switch v-model="editorValues.startMuted" data-conference-field="startMuted" color="primary" label="Start each participant muted" :error-messages="conferenceErrorMessages('startMuted')" :hint="editorIsNew ? 'Off by default. When on, callers can press *1 in the FreePBX user menu to toggle mute and speak.' : 'When on, callers can press *1 in the FreePBX user menu to toggle mute and speak.'" persistent-hint>
+                <template #append><v-chip size="small" variant="outlined">{{ editorValues.startMuted ? 'On · *1 unmutes' : editorIsNew ? 'Off · default' : 'Off' }}</v-chip></template>
+              </v-switch>
+              <v-switch v-model="editorValues.musicOnHoldWhenEmpty" data-conference-field="musicOnHoldWhenEmpty" color="primary" label="Play waiting music while a caller is alone" :error-messages="conferenceErrorMessages('musicOnHoldWhenEmpty')" :hint="editorIsNew ? 'Off by default. When on, FreePBX requests the PBX default music class while a caller is alone or waiting. Configuration success does not prove audio is available; verify it with a real call.' : 'When on, FreePBX requests the PBX default music class while a caller is alone or waiting. Configuration success does not prove audio is available; verify it with a real call.'" persistent-hint>
+                <template #append><v-chip size="small" variant="outlined">{{ editorValues.musicOnHoldWhenEmpty ? 'On' : editorIsNew ? 'Off · default' : 'Off' }}</v-chip></template>
+              </v-switch>
+              <v-switch v-model="editorValues.quiet" data-conference-field="quiet" color="primary" label="Quiet mode" :error-messages="conferenceErrorMessages('quiet')" :hint="editorIsNew ? 'Off by default. When on, FreePBX suppresses entry, exit, and recorded-name announcements for each caller.' : 'When on, FreePBX suppresses entry, exit, and recorded-name announcements for each caller.'" persistent-hint>
+                <template #append><v-chip size="small" variant="outlined">{{ editorValues.quiet ? 'On' : editorIsNew ? 'Off · default' : 'Off' }}</v-chip></template>
+              </v-switch>
+            </section>
+
+            <v-alert v-for="message in conferenceErrors" :key="message" type="error" variant="tonal" :text="message" role="alert" />
+            <section class="conference-review" aria-labelledby="conference-review-heading">
+              <div><p class="conference-kicker">REVIEW</p><h2 id="conference-review-heading">What will be applied</h2><p>This summary is generated from the same values sent to the typed control service.</p></div>
+              <div class="conference-review-chips"><v-chip v-for="item in conferenceReview" :key="item" variant="tonal">{{ item }}</v-chip></div>
+            </section>
+            <v-expansion-panels v-if="!conferenceErrors.length" variant="accordion" class="conference-advanced">
+              <v-expansion-panel title="Advanced native behavior (validated)">
+                <v-expansion-panel-text>
+                  MaterialPBX uses the installed FreePBX Conferences module. FreePBX owns the ext-meetme dialplan and dynamic ConfBridge profiles. Option s always supplies the standard user menu, where *1 toggles mute. No PIN, moderator role, arbitrary dialplan, shell command, or free-form configuration is accepted.
+                </v-expansion-panel-text>
+              </v-expansion-panel>
+            </v-expansion-panels>
+          </section>
+
+          <template v-else v-for="field in currentForm" :key="field.key">
+            <v-text-field v-if="field.type==='text'" v-model="editorValues[field.key]" :label="field.label" :hint="field.help" persistent-hint/>
+            <v-number-input v-else-if="field.type==='number'" v-model="editorValues[field.key]" :label="field.label" :hint="field.help" persistent-hint/>
+            <SearchablePicker v-else-if="field.type==='select'" v-model="editorValues[field.key]" :label="field.label" :items="field.options" :hint="field.help" persistent-hint/>
+            <v-slider v-else-if="field.type==='slider'" v-model="editorValues[field.key]" :label="field.label" :min="1" :max="field.key==='ringSeconds'?120:64" thumb-label/>
+            <v-switch v-else-if="field.type==='switch'" v-model="editorValues[field.key]" :label="field.label" :hint="field.help" persistent-hint/>
+          </template>
+          <section v-if="activePage !== 'conferences' && currentForm.some((field) => field.type === 'members')" class="member-editor" :aria-label="membersEditorLabel"><h2>{{ membersEditorLabel }}</h2><v-list density="compact"><v-list-item v-for="member in activeMembers" :key="member.id"><v-text-field v-model="member.label" :label="membersFieldLabel" hint="Use the exact validated identifier described by this field." persistent-hint /><template #append><v-btn icon="mdi-delete-outline" variant="text" aria-label="Remove item" @click="removeMember(member.id)" /></template></v-list-item></v-list><p v-if="!activeMembers.length">{{ membersEmptyMessage }}</p><v-btn prepend-icon="mdi-plus" @click="addMember">Add item</v-btn></section>
+          <v-alert v-if="['connected','degraded'].includes(connection)" type="info" variant="tonal">Saving sends this typed resource to the authenticated control service. Success appears only after the server confirms it.</v-alert>
+          <v-alert v-if="activePage === 'conferences' && ['connected','degraded'].includes(connection)" type="info" variant="tonal">The native result distinguishes configuration applied and FreePBX reloaded; runtime verification remains pending. A saved room is not described as live until a real call proves it.</v-alert>
+          <v-alert v-if="!['connected','degraded'].includes(connection)" type="warning" variant="tonal">Saving creates a local draft only. No PBX is connected.</v-alert>
+        </v-card-text>
+        <v-card-actions><v-spacer/><v-btn @click="discardEditorDraft">Cancel</v-btn><v-btn color="primary" :disabled="(activePage === 'conferences' && conferenceErrors.length > 0) || (['connected','degraded'].includes(connection) && !canAttemptWriteCurrent)" @click="saveEditor">{{ ['connected','degraded'].includes(connection) ? editingResourceProvenance === 'local-draft' ? 'Review and send to control service' : 'Apply through control service' : 'Save local draft' }}</v-btn></v-card-actions>
+      </v-card>
+    </v-dialog>
+    <v-dialog v-model="editorCloseConfirmOpen" max-width="560" persistent @keydown.esc.stop.prevent="editorCloseConfirmOpen=false"><v-card><v-card-title>Discard unsaved editor changes?</v-card-title><v-card-text><p>The current values differ from the last loaded or saved version. Keep editing to preserve them, or discard them and return focus to the control that opened this editor.</p></v-card-text><v-card-actions><v-btn @click="editorCloseConfirmOpen=false">Keep editing</v-btn><v-spacer/><v-btn color="error" variant="tonal" @click="confirmDiscardEditorDraft">Discard changes</v-btn></v-card-actions></v-card></v-dialog>
 
     <v-dialog v-model="paletteOpen" :fullscreen="false" max-width="860"><v-card class="palette"><v-card-title>Command palette</v-card-title><v-card-text><div class="search-row"><v-text-field v-model="paletteSearch.query" autofocus label="Search every page, command, setting, and appearance control" prepend-inner-icon="mdi-magnify" clearable/><v-btn icon="mdi-regex" aria-label="Open regex builder for command palette search" :color="paletteSearch.regex ? 'primary' : undefined" @click="openRegexBuilder('Command-palette search', 'palette', $event)"/></div><p class="search-result-count" role="status">{{ paletteResults.length }} of {{ pages.length }} destinations shown</p><p v-if="paletteCompiled.error" class="text-error" role="alert">{{ paletteCompiled.error }}</p><v-list><v-list-item v-for="item in paletteResults" :key="item.id" :title="item.label" :subtitle="`${item.group} · ${item.description}`" @click="openPage(item.id);paletteOpen=false"/><v-list-item v-if="!paletteResults.length" title="No matching destinations" subtitle="Clear the search or correct the regular expression." disabled/><v-list-item title="Theme"><template #append><SearchablePicker v-model="settings.theme" label="Theme" hide-details density="compact" :items="['system','light','dark']" no-data-text="No matching themes"/></template></v-list-item><v-list-item title="Narrator"><template #append><v-switch v-model="settings.narrator" hide-details/></template></v-list-item></v-list></v-card-text></v-card></v-dialog>
 

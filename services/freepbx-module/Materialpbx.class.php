@@ -6,13 +6,18 @@ class Materialpbx extends \FreePBX_Helpers implements \BMO
 {
     private const REQUEST_SNAPSHOT_DIRECTORY = '/var/lib/materialpbx-helper/requests';
     private const MAX_REQUEST_SNAPSHOT_BYTES = 262144;
+    private const CONFERENCE_LOCK_DIRECTORY = '/var/lib/materialpbx/locks';
 
     public function __construct($freepbx = null)
     {
         parent::__construct($freepbx);
     }
 
-    public function install() { return true; }
+    public function install()
+    {
+        self::ensureConferenceLockDirectory(true);
+        return true;
+    }
     public function uninstall() { return true; }
     public function backup() { return ['materialpbx_resources']; }
     public function restore($backup) { return true; }
@@ -54,6 +59,10 @@ class Materialpbx extends \FreePBX_Helpers implements \BMO
                 $ext->add($artifact['context'], $artifact['mailbox'], 1, new \ext_noop('MaterialPBX generated voicemail context'));
             } elseif ($compiler === 'time-condition-get-config-v1') {
                 $ext->add($artifact['context'], 's', 1, new \ext_noop('MaterialPBX generated time condition schedule'));
+            } elseif ($compiler === 'conference-freepbx-bmo-v1') {
+                self::assertConferenceArtifact($artifact);
+                // The installed FreePBX Conferences module owns ext-meetme and emits the
+                // dynamic ConfBridge user/bridge settings from this BMO-managed record.
             }
         }
     }
@@ -97,6 +106,9 @@ ON DUPLICATE KEY UPDATE revision = VALUES(revision), enabled = VALUES(enabled),
 SQL;
         $registry = new \FreePBXmodules\Materialpbx\NativeCompilerRegistry();
         $preview = $registry->preview($resource);
+        $conferenceFrom = null;
+        $conferenceTo = null;
+        $conferenceTransitioned = false;
         $this->Database->beginTransaction();
         try {
         $currentDesired = $this->Database->prepare('SELECT revision,enabled,display_name,configuration FROM materialpbx_resources WHERE resource_kind=? AND resource_id=? FOR UPDATE');
@@ -114,10 +126,15 @@ SQL;
             mb_substr((string) $resource['displayName'], 0, 256), $configuration
         ]);
         $prior = $this->Database->prepare('SELECT compiler, artifact FROM materialpbx_compiled WHERE resource_kind=? AND resource_id=? FOR UPDATE'); $prior->execute([$kind, $id]); $old = $prior->fetch(\PDO::FETCH_ASSOC) ?: [];
+        $conferenceFrom = self::conferenceArtifactFromStored($old ?: null);
         if ($preview['status'] === 'remove') {
             if (!$old) { $this->Database->commit(); return self::withRequestBinding(['storedDesired'=>true,'compilation'=>['status'=>'unsupported','compiler'=>null,'reason'=>'Disabled desired state was stored; no compiled artifact existed to remove.','snapshotId'=>null,'diff'=>[['operation'=>'unchanged','target'=>$kind.':'.$id,'summary'=>'No generated output existed.']]],'applied'=>false,'rollback'=>['attempted'=>false,'succeeded'=>null,'snapshotId'=>null,'reason'=>null]], $requestBinding); }
             $snapshotId=self::uuid4();
             $snapshot=$this->Database->prepare('INSERT INTO materialpbx_compiler_snapshots (snapshot_id,resource_kind,resource_id,prior_compiler,prior_artifact,created_at) VALUES (?,?,?,?,?,UTC_TIMESTAMP(6))'); $snapshot->execute([$snapshotId,$kind,$id,$old['compiler'],$old['artifact']]);
+            if ($conferenceFrom !== null) {
+                $this->transitionConferenceArtifacts($conferenceFrom, null);
+                $conferenceTransitioned = true;
+            }
             $remove=$this->Database->prepare('DELETE FROM materialpbx_compiled WHERE resource_kind=? AND resource_id=?'); $remove->execute([$kind,$id]);
             $this->Database->commit();
             return self::withRequestBinding(['storedDesired'=>true,'compilation'=>['status'=>'compiled','compiler'=>$old['compiler'],'reason'=>'Disabled desired state was stored and prior compiled output was removed.','snapshotId'=>$snapshotId,'diff'=>$preview['diff']],'applied'=>true,'rollback'=>['attempted'=>false,'succeeded'=>null,'snapshotId'=>$snapshotId,'reason'=>null]], $requestBinding);
@@ -130,17 +147,37 @@ SQL;
         }
         $snapshotId = self::uuid4();
         $snapshot = $this->Database->prepare('INSERT INTO materialpbx_compiler_snapshots (snapshot_id, resource_kind, resource_id, prior_compiler, prior_artifact, created_at) VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP(6))'); $snapshot->execute([$snapshotId, $kind, $id, $old['compiler'] ?? null, $old['artifact'] ?? null]);
+        if ($preview['compiler'] === 'conference-freepbx-bmo-v1') {
+            $conferenceTo = $preview['artifact'];
+            self::assertConferenceArtifact($conferenceTo);
+            $this->transitionConferenceArtifacts($conferenceFrom, $conferenceTo);
+            $conferenceTransitioned = true;
+        }
         $compiled = $this->Database->prepare('INSERT INTO materialpbx_compiled (resource_kind, resource_id, compiler, artifact, updated_at) VALUES (?, ?, ?, ?, UTC_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE compiler=VALUES(compiler), artifact=VALUES(artifact), updated_at=VALUES(updated_at)'); $compiled->execute([$kind, $id, $preview['compiler'], json_encode($preview['artifact'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)]);
         $this->Database->commit();
         return self::withRequestBinding(['storedDesired' => true, 'compilation' => ['status' => 'compiled', 'compiler' => $preview['compiler'], 'reason' => $preview['reason'], 'snapshotId' => $snapshotId, 'diff' => $preview['diff']], 'applied' => true, 'rollback' => ['attempted' => false, 'succeeded' => null, 'snapshotId' => $snapshotId, 'reason' => null]], $requestBinding);
-        } catch (\Throwable $error) { $this->Database->rollBack(); throw $error; }
+        } catch (\Throwable $error) {
+            if ($this->Database->inTransaction()) $this->Database->rollBack();
+            if ($conferenceTransitioned) {
+                try {
+                    $this->compensateConferenceArtifacts($conferenceTo, $conferenceFrom);
+                } catch (\Throwable $compensationError) {
+                    throw new \RuntimeException('The desired-state transaction failed and explicit FreePBX conference compensation also failed: ' . $compensationError->getMessage(), 0, $error);
+                }
+                throw new \RuntimeException('The desired-state transaction failed; explicit FreePBX conference compensation restored the prior native state.', 0, $error);
+            }
+            throw $error;
+        }
     }
 
     private function deleteCompiledResource(string $kind, string $id, array $resource, int $expectedRevision): array
     {
+        $conferenceFrom = null;
+        $conferenceTransitioned = false;
         $this->Database->beginTransaction();
         try {
             $prior=$this->Database->prepare('SELECT compiler,artifact FROM materialpbx_compiled WHERE resource_kind=? AND resource_id=? FOR UPDATE'); $prior->execute([$kind,$id]); $old=$prior->fetch(\PDO::FETCH_ASSOC) ?: null;
+            $conferenceFrom = self::conferenceArtifactFromStored($old);
             $currentDesired=$this->Database->prepare('SELECT revision,enabled,display_name,configuration FROM materialpbx_resources WHERE resource_kind=? AND resource_id=? FOR UPDATE'); $currentDesired->execute([$kind,$id]); $current=$currentDesired->fetch(\PDO::FETCH_ASSOC) ?: null;
             if (!$current) throw new \RuntimeException('No module-owned desired-state record matches the immutable removal snapshot');
             if ((int)$current['revision'] !== $expectedRevision) throw new \RuntimeException('The immutable removal snapshot revision does not match the stored desired state');
@@ -152,23 +189,60 @@ SQL;
             }
             $snapshotId=self::uuid4();
             $snapshot=$this->Database->prepare('INSERT INTO materialpbx_compiler_snapshots (snapshot_id,resource_kind,resource_id,prior_compiler,prior_artifact,created_at) VALUES (?,?,?,?,?,UTC_TIMESTAMP(6))'); $snapshot->execute([$snapshotId,$kind,$id,$old['compiler'],$old['artifact']]);
+            if ($conferenceFrom !== null) {
+                $this->transitionConferenceArtifacts($conferenceFrom, null);
+                $conferenceTransitioned = true;
+            }
             $remove=$this->Database->prepare('DELETE FROM materialpbx_compiled WHERE resource_kind=? AND resource_id=?'); $remove->execute([$kind,$id]);
             $this->Database->commit();
             return ['storedDesired'=>false,'compilation'=>['status'=>'compiled','compiler'=>$old['compiler'],'reason'=>'The module-owned compiled artifact was removed transactionally.','snapshotId'=>$snapshotId,'diff'=>[['operation'=>'remove','target'=>$kind.':'.$id,'summary'=>'Remove generated output after preserving its snapshot.']]],'applied'=>true,'rollback'=>['attempted'=>false,'succeeded'=>null,'snapshotId'=>$snapshotId,'reason'=>null]];
-        } catch (\Throwable $error) { $this->Database->rollBack(); throw $error; }
+        } catch (\Throwable $error) {
+            if ($this->Database->inTransaction()) $this->Database->rollBack();
+            if ($conferenceTransitioned) {
+                try {
+                    $this->compensateConferenceArtifacts(null, $conferenceFrom);
+                } catch (\Throwable $compensationError) {
+                    throw new \RuntimeException('Conference deletion failed and explicit FreePBX BMO compensation also failed: ' . $compensationError->getMessage(), 0, $error);
+                }
+                throw new \RuntimeException('Conference deletion failed; explicit FreePBX BMO compensation restored the owned conference.', 0, $error);
+            }
+            throw $error;
+        }
     }
 
     public function rollbackCompilation(string $snapshotId): array
     {
         if (!preg_match('/^[0-9a-f-]{36}$/D', $snapshotId)) throw new \InvalidArgumentException('Invalid snapshot identifier');
+        $conferenceFrom = null;
+        $conferenceTo = null;
+        $conferenceTransitioned = false;
         $this->Database->beginTransaction();
         try {
             $q=$this->Database->prepare('SELECT * FROM materialpbx_compiler_snapshots WHERE snapshot_id=? AND restored_at IS NULL FOR UPDATE'); $q->execute([$snapshotId]); $s=$q->fetch(\PDO::FETCH_ASSOC); if (!$s) throw new \RuntimeException('Snapshot is missing or already restored');
+            $currentQuery=$this->Database->prepare('SELECT compiler,artifact FROM materialpbx_compiled WHERE resource_kind=? AND resource_id=? FOR UPDATE'); $currentQuery->execute([$s['resource_kind'],$s['resource_id']]); $current=$currentQuery->fetch(\PDO::FETCH_ASSOC) ?: null;
+            $conferenceFrom=self::conferenceArtifactFromStored($current);
+            $priorStored=$s['prior_artifact'] === null ? null : ['compiler'=>$s['prior_compiler'],'artifact'=>$s['prior_artifact']];
+            $conferenceTo=self::conferenceArtifactFromStored($priorStored);
+            if ($conferenceFrom !== null || $conferenceTo !== null) {
+                $this->transitionConferenceArtifacts($conferenceFrom, $conferenceTo);
+                $conferenceTransitioned = true;
+            }
             if ($s['prior_artifact'] === null) { $d=$this->Database->prepare('DELETE FROM materialpbx_compiled WHERE resource_kind=? AND resource_id=?'); $d->execute([$s['resource_kind'],$s['resource_id']]); }
             else { $u=$this->Database->prepare('INSERT INTO materialpbx_compiled (resource_kind,resource_id,compiler,artifact,updated_at) VALUES (?,?,?,?,UTC_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE compiler=VALUES(compiler),artifact=VALUES(artifact),updated_at=VALUES(updated_at)'); $u->execute([$s['resource_kind'],$s['resource_id'],$s['prior_compiler'],$s['prior_artifact']]); }
             $m=$this->Database->prepare('UPDATE materialpbx_compiler_snapshots SET restored_at=UTC_TIMESTAMP(6) WHERE snapshot_id=?'); $m->execute([$snapshotId]); $this->Database->commit();
-            return ['attempted'=>true,'succeeded'=>true,'snapshotId'=>$snapshotId,'reason'=>'Compiled output restored; reload and runtime verification remain pending.'];
-        } catch (\Throwable $error) { $this->Database->rollBack(); throw $error; }
+            return ['attempted'=>true,'succeeded'=>true,'snapshotId'=>$snapshotId,'reason'=>$conferenceTransitioned ? 'Compiled output and the module-owned FreePBX conference were restored; reload and runtime verification remain pending.' : 'Compiled output restored; reload and runtime verification remain pending.'];
+        } catch (\Throwable $error) {
+            if ($this->Database->inTransaction()) $this->Database->rollBack();
+            if ($conferenceTransitioned) {
+                try {
+                    $this->compensateConferenceArtifacts($conferenceTo, $conferenceFrom);
+                } catch (\Throwable $compensationError) {
+                    throw new \RuntimeException('Compilation rollback failed and explicit FreePBX conference compensation also failed: ' . $compensationError->getMessage(), 0, $error);
+                }
+                throw new \RuntimeException('Compilation rollback failed; explicit FreePBX conference compensation restored the pre-rollback native state.', 0, $error);
+            }
+            throw $error;
+        }
     }
 
     private static function uuid4(): string { $d=random_bytes(16); $d[6]=chr((ord($d[6])&15)|64); $d[8]=chr((ord($d[8])&63)|128); return vsprintf('%s%s-%s-%s-%s-%s%s%s',str_split(bin2hex($d),4)); }
@@ -406,6 +480,18 @@ SQL;
             self::validateDestination($configuration['failoverDestination'], 'ring group failover destination');
             return;
         }
+        if ($feature === 'conference') {
+            self::assertExactKeys($configuration, ['announceJoinLeave', 'maxParticipants', 'musicOnHoldWhenEmpty', 'number', 'quiet', 'recordConference', 'startMuted'], [], 'conference configuration');
+            self::assertPatternString($configuration['number'], '/^[0-9]{2,12}$/D', 'conference number');
+            self::assertIntegerRange($configuration['maxParticipants'], 2, 200, 'conference maximum participants');
+            foreach (['recordConference', 'announceJoinLeave', 'startMuted', 'musicOnHoldWhenEmpty', 'quiet'] as $field) {
+                if (!is_bool($configuration[$field])) throw new \RuntimeException("Conference setting {$field} must be true or false");
+            }
+            if ($configuration['quiet'] && $configuration['announceJoinLeave']) {
+                throw new \RuntimeException('Turn off quiet mode or turn off join and leave announcements. Quiet mode suppresses those announcements.');
+            }
+            return;
+        }
         if ($feature === 'voicemail') {
             self::assertExactKeys($configuration, ['attachAudio', 'mailbox', 'maxMessageSeconds'], ['email'], 'voicemail configuration');
             self::assertPatternString($configuration['mailbox'], '/^[0-9]{2,12}$/D', 'voicemail mailbox');
@@ -447,7 +533,7 @@ SQL;
         return [
             'extension' => 'extensions', 'trunk' => 'trunks', 'inbound-route' => 'inbound-routes',
             'outbound-route' => 'outbound-routes', 'ivr' => 'ivrs', 'queue' => 'queues',
-            'ring-group' => 'ring-groups', 'voicemail' => 'voicemail-boxes', 'time-condition' => 'time-conditions'
+            'ring-group' => 'ring-groups', 'conference' => 'conferences', 'voicemail' => 'voicemail-boxes', 'time-condition' => 'time-conditions'
         ];
     }
 
@@ -545,6 +631,490 @@ SQL;
         $document = json_decode($bytes, true, 64, JSON_THROW_ON_ERROR);
         if (($document['version'] ?? null) !== 1 || !is_array($document['resources'] ?? null)) throw new \RuntimeException('Invalid desired-state store');
         return $document;
+    }
+
+    private function conferencesApi()
+    {
+        if (!class_exists('\\FreePBX') || !is_callable(['\\FreePBX', 'Conferences'])) {
+            throw new \RuntimeException('The FreePBX Conferences module is not installed or its BMO service is unavailable. No conference was changed.');
+        }
+        try {
+            $api = \FreePBX::Conferences();
+        } catch (\Throwable $error) {
+            throw new \RuntimeException('The FreePBX Conferences BMO service could not be opened. No conference was changed.', 0, $error);
+        }
+        foreach (['addConference', 'getAllConferences', 'updateConferenceSettingById', 'deleteConference'] as $method) {
+            if (!is_object($api) || !is_callable([$api, $method])) {
+                throw new \RuntimeException("The installed FreePBX Conferences module does not provide the required {$method} API. No conference was changed.");
+            }
+        }
+        return $api;
+    }
+
+    private function conferenceFacade()
+    {
+        if (!class_exists('\\FreePBX') || !is_callable(['\\FreePBX', 'create'])) {
+            throw new \RuntimeException('The FreePBX facade is unavailable. No conference was changed.');
+        }
+        try {
+            $facade = \FreePBX::create();
+        } catch (\Throwable $error) {
+            throw new \RuntimeException('The FreePBX facade could not be opened. No conference was changed.', 0, $error);
+        }
+        if (!is_object($facade)) {
+            throw new \RuntimeException('The FreePBX facade is invalid. No conference was changed.');
+        }
+        try {
+            $astman = $facade->astman;
+            $recordings = $facade->Recordings;
+            $modules = $facade->Modules;
+        } catch (\Throwable $error) {
+            throw new \RuntimeException('A required FreePBX conference service could not be loaded. No conference was changed.', 0, $error);
+        }
+        if (!is_object($astman)) {
+            throw new \RuntimeException('The FreePBX Asterisk Manager service is unavailable. No conference was changed.');
+        }
+        if (!is_object($recordings) || !is_callable([$recordings, 'getFilenameById'])) {
+            throw new \RuntimeException('The FreePBX Recordings service is unavailable. No conference was changed.');
+        }
+        foreach (['database_show', 'database_put', 'database_deltree'] as $method) {
+            if (!is_callable([$astman, $method])) {
+                throw new \RuntimeException("The FreePBX Asterisk Manager service does not provide {$method}. No conference was changed.");
+            }
+        }
+        return (object)['astman' => $astman, 'Recordings' => $recordings, 'Modules' => $modules];
+    }
+
+    private static function assertConferenceArtifact(array $artifact): void
+    {
+        self::assertExactKeys($artifact, ['compiler', 'description', 'options', 'ownership', 'room', 'route', 'schemaVersion', 'users'], [], 'conference compiler artifact');
+        if ($artifact['schemaVersion'] !== 1 || $artifact['compiler'] !== 'conference-freepbx-bmo-v1' || $artifact['route'] !== 'FreePBX::Conferences') {
+            throw new \RuntimeException('The conference compiler artifact does not declare the supported FreePBX Conferences BMO route.');
+        }
+        self::assertPatternString($artifact['room'], '/^[0-9]{2,12}$/D', 'compiled conference room');
+        self::assertBoundedString($artifact['description'], 22, 50, 'compiled conference description');
+        if (strlen($artifact['description']) > 50 || !preg_match('//u', $artifact['description'])) throw new \RuntimeException('Compiled conference description must be valid UTF-8 within the 50-byte FreePBX field limit');
+        self::assertPatternString($artifact['options'], '/^(?=[IMmqrs]*s)[IMmqrs]{1,6}$/D', 'compiled conference options');
+        if (count(array_unique(str_split($artifact['options']))) !== strlen($artifact['options'])) throw new \RuntimeException('Compiled conference options must not contain duplicates');
+        self::assertIntegerRange($artifact['users'], 2, 200, 'compiled conference maximum participants');
+        self::assertExactKeys($artifact['ownership'], ['descriptionPrefix', 'module', 'resourceId'], [], 'conference artifact ownership');
+        if ($artifact['ownership']['module'] !== 'materialpbx') throw new \RuntimeException('The conference artifact is not owned by MaterialPBX');
+        self::assertIdentifierValue($artifact['ownership']['resourceId'], 128, 'conference artifact resource identifier');
+        self::assertPatternString($artifact['ownership']['descriptionPrefix'], '/^MPBX:[a-f0-9]{16}:$/D', 'conference ownership description prefix');
+        $expectedPrefix = 'MPBX:' . substr(hash('sha256', $artifact['ownership']['resourceId']), 0, 16) . ':';
+        if (!hash_equals($expectedPrefix, $artifact['ownership']['descriptionPrefix']) || !str_starts_with($artifact['description'], $expectedPrefix)) {
+            throw new \RuntimeException('The conference ownership marker does not match its resource identifier');
+        }
+        $sorted = str_split($artifact['options']);
+        sort($sorted, SORT_STRING);
+        if (!hash_equals(implode('', $sorted), $artifact['options'])) throw new \RuntimeException('Compiled conference options are not deterministic');
+    }
+
+    private static function conferenceArtifactFromStored(?array $stored): ?array
+    {
+        if (!$stored || ($stored['compiler'] ?? null) !== 'conference-freepbx-bmo-v1') return null;
+        try {
+            $artifact = json_decode((string)$stored['artifact'], true, 16, JSON_THROW_ON_ERROR);
+        } catch (\Throwable $error) {
+            throw new \RuntimeException('The stored conference compiler artifact is malformed', 0, $error);
+        }
+        if (!is_array($artifact) || array_is_list($artifact)) throw new \RuntimeException('The stored conference compiler artifact must be an object');
+        self::assertConferenceArtifact($artifact);
+        return $artifact;
+    }
+
+    private static function conferenceRow($api, string $room): ?array
+    {
+        try {
+            $rows = $api->getAllConferences();
+        } catch (\Throwable $error) {
+            throw new \RuntimeException('FreePBX could not read the conference table. No conference was changed.', 0, $error);
+        }
+        if (!is_array($rows)) throw new \RuntimeException('FreePBX returned an invalid conference table result. No conference was changed.');
+        $match = null;
+        foreach ($rows as $row) {
+            if (!is_array($row) || !array_key_exists('exten', $row)) throw new \RuntimeException('FreePBX returned a malformed conference row. No conference was changed.');
+            if (!hash_equals($room, (string)$row['exten'])) continue;
+            if ($match !== null) throw new \RuntimeException("FreePBX returned duplicate conference rows for {$room}. No conference was changed.");
+            $match = $row;
+        }
+        return $match;
+    }
+
+    private static function conferenceSqlStateFromArtifact(array $artifact): array
+    {
+        return [
+            'exten' => $artifact['room'], 'description' => $artifact['description'],
+            'userpin' => '', 'adminpin' => '', 'options' => $artifact['options'],
+            'joinmsg_id' => null, 'music' => '', 'users' => $artifact['users'],
+            'language' => '', 'timeout' => 21600,
+        ];
+    }
+
+    private static function conferenceRuntimeStateFromArtifact(array $artifact): array
+    {
+        return [
+            'language' => '', 'userpin' => '', 'adminpin' => '',
+            'options' => $artifact['options'], 'music' => '',
+            'users' => (string)$artifact['users'], 'joinmsg' => '', 'timeout' => '21600',
+        ];
+    }
+
+    private static function conferenceRuntimeStateFromRow(array $row, $recordings): array
+    {
+        $joinMessage = '';
+        if (($row['joinmsg_id'] ?? null) !== null && (string)$row['joinmsg_id'] !== '') {
+            try {
+                $filename = $recordings->getFilenameById($row['joinmsg_id']);
+            } catch (\Throwable $error) {
+                throw new \RuntimeException('FreePBX could not resolve the conference join recording. No conference state was changed.', 0, $error);
+            }
+            $joinMessage = !empty($filename) ? (string)$filename : '';
+        }
+        return [
+            'language' => (string)($row['language'] ?? ''),
+            'userpin' => (string)($row['userpin'] ?? ''),
+            'adminpin' => (string)($row['adminpin'] ?? ''),
+            'options' => (string)($row['options'] ?? ''),
+            'music' => (string)($row['music'] ?? ''),
+            'users' => (string)(!empty($row['users']) ? $row['users'] : 0),
+            'joinmsg' => $joinMessage,
+            'timeout' => (string)(!empty($row['timeout']) ? $row['timeout'] : 21600),
+        ];
+    }
+
+    private static function conferenceAstDbState($astman, string $room): array
+    {
+        try {
+            $raw = $astman->database_show('CONFERENCE/' . $room);
+        } catch (\Throwable $error) {
+            throw new \RuntimeException("Asterisk Manager could not read conference {$room} runtime state. No conference was changed.", 0, $error);
+        }
+        if (!is_array($raw)) throw new \RuntimeException("Asterisk Manager returned an invalid runtime state for conference {$room}. No conference was changed.");
+        $state = [];
+        $prefix = '/CONFERENCE/' . $room . '/';
+        foreach ($raw as $family => $value) {
+            $family = (string)$family;
+            if (!str_starts_with($family, $prefix)) throw new \RuntimeException("Asterisk Manager returned an unexpected family while reading conference {$room}.");
+            $key = substr($family, strlen($prefix));
+            if (!in_array($key, ['language', 'userpin', 'adminpin', 'options', 'music', 'users', 'joinmsg', 'timeout'], true)) {
+                throw new \RuntimeException("Conference {$room} has unsupported Asterisk database key {$key}. Review it before applying another change.");
+            }
+            if (array_key_exists($key, $state)) throw new \RuntimeException("Conference {$room} returned duplicate Asterisk database key {$key}.");
+            $state[$key] = (string)$value;
+        }
+        ksort($state, SORT_STRING);
+        return $state;
+    }
+
+    private static function writeConferenceRuntime($astman, string $room, array $state): void
+    {
+        foreach (['language', 'userpin', 'adminpin', 'options', 'music', 'users', 'joinmsg', 'timeout'] as $key) {
+            if (!array_key_exists($key, $state)) throw new \RuntimeException("Conference runtime restoration is missing {$key}.");
+            $result = $astman->database_put('CONFERENCE/' . $room, $key, (string)$state[$key]);
+            if ($result === false) throw new \RuntimeException("Asterisk Manager refused to restore conference {$room} key {$key}.");
+        }
+        $actual = self::conferenceAstDbState($astman, $room);
+        $expected = array_map('strval', $state);
+        ksort($expected, SORT_STRING);
+        if ($actual !== $expected) throw new \RuntimeException("Asterisk Manager did not retain the complete runtime state for conference {$room}.");
+    }
+
+    private static function clearConferenceRuntime($astman, string $room): void
+    {
+        if ($astman->database_deltree('CONFERENCE/' . $room) === false) throw new \RuntimeException("Asterisk Manager refused to clear conference {$room} runtime state.");
+        if (self::conferenceAstDbState($astman, $room) !== []) throw new \RuntimeException("Conference {$room} runtime state remained after removal.");
+    }
+
+    private static function conferenceRowMatchesArtifact(array $row, array $artifact): bool
+    {
+        $expected = self::conferenceSqlStateFromArtifact($artifact);
+        return hash_equals($expected['exten'], (string)($row['exten'] ?? ''))
+            && hash_equals($expected['description'], (string)($row['description'] ?? ''))
+            && hash_equals($expected['options'], (string)($row['options'] ?? ''))
+            && $expected['users'] === (int)($row['users'] ?? 0)
+            && (string)($row['userpin'] ?? '') === ''
+            && (string)($row['adminpin'] ?? '') === ''
+            && ($row['joinmsg_id'] ?? null) === null
+            && (string)($row['music'] ?? '') === ''
+            && (string)($row['language'] ?? '') === ''
+            && (int)($row['timeout'] ?? 0) === 21600;
+    }
+
+    private static function assertConferenceRowMatches($api, $astman, array $artifact): void
+    {
+        self::assertConferenceArtifact($artifact);
+        $row = self::conferenceRow($api, $artifact['room']);
+        if ($row === null) throw new \RuntimeException("The module-owned FreePBX conference {$artifact['room']} is missing.");
+        $prefix = $artifact['ownership']['descriptionPrefix'];
+        $actualDescription = (string)($row['description'] ?? '');
+        if (!str_starts_with($actualDescription, $prefix)) {
+            throw new \RuntimeException("FreePBX conference {$artifact['room']} is not owned by this MaterialPBX resource. No conference was changed.");
+        }
+        if (!self::conferenceRowMatchesArtifact($row, $artifact)) {
+            throw new \RuntimeException("FreePBX conference {$artifact['room']} changed outside MaterialPBX. Review it before applying another change.");
+        }
+        $expectedRuntime = self::conferenceRuntimeStateFromArtifact($artifact);
+        $actualRuntime = self::conferenceAstDbState($astman, $artifact['room']);
+        ksort($expectedRuntime, SORT_STRING);
+        if ($actualRuntime !== $expectedRuntime) {
+            throw new \RuntimeException("FreePBX conference {$artifact['room']} runtime state changed outside MaterialPBX. Review it before applying another change.");
+        }
+    }
+
+    private static function assertConferenceRoomAbsent($api, $astman, string $room): void
+    {
+        if (self::conferenceRow($api, $room) !== null) throw new \RuntimeException("FreePBX conference number {$room} already exists and is not available for this MaterialPBX resource.");
+        if (self::conferenceAstDbState($astman, $room) !== []) throw new \RuntimeException("Conference number {$room} has orphaned Asterisk database state and is not available for reuse.");
+    }
+
+    private static function assertConferenceRoomInRange(string $room): void
+    {
+        if (!function_exists('checkRange')) {
+            throw new \RuntimeException('FreePBX extension-range checking is unavailable. No conference was changed.');
+        }
+        if (\checkRange($room) !== true) {
+            throw new \RuntimeException("Extension {$room} is outside the range FreePBX permits for this feature. No conference was changed.");
+        }
+    }
+
+    private static function assertConferenceTargetAvailable(string $room): void
+    {
+        self::assertConferenceRoomInRange($room);
+        if (!function_exists('framework_check_extension_usage')) {
+            throw new \RuntimeException('FreePBX extension-usage checking is unavailable. No conference was changed.');
+        }
+        $usage = \framework_check_extension_usage($room);
+        if (!is_array($usage)) throw new \RuntimeException('FreePBX returned an invalid extension-usage result. No conference was changed.');
+        if ($usage !== []) throw new \RuntimeException("Extension {$room} is already used by another FreePBX feature. No conference was changed.");
+    }
+
+    private static function changeConferenceDestination(string $fromRoom, string $toRoom): void
+    {
+        foreach (['conferences_getdest', 'framework_change_destination'] as $function) {
+            if (!function_exists($function)) throw new \RuntimeException("FreePBX destination function {$function} is unavailable. No conference room number was changed.");
+        }
+        $from = \conferences_getdest($fromRoom);
+        $to = \conferences_getdest($toRoom);
+        if (!is_array($from) || !isset($from[0]) || !is_string($from[0]) || !is_array($to) || !isset($to[0]) || !is_string($to[0])) {
+            throw new \RuntimeException('FreePBX returned an invalid conference destination. No conference room number was changed.');
+        }
+        if (\framework_change_destination($from[0], $to[0]) === false) {
+            throw new \RuntimeException("FreePBX refused to move destinations from conference {$fromRoom} to {$toRoom}.");
+        }
+    }
+
+    private static function assertConferenceDeletionIntegrationAvailable($facade): void
+    {
+        if (!isset($facade->Modules) || !is_object($facade->Modules) || !is_callable([$facade->Modules, 'checkStatus'])) {
+            throw new \RuntimeException('FreePBX module-status checking is unavailable, so conference deletion and room-number changes are disabled.');
+        }
+        try {
+            $enabled = $facade->Modules->checkStatus('sangomartapi');
+        } catch (\Throwable $error) {
+            throw new \RuntimeException('FreePBX could not determine whether the Sangoma REST conference integration is enabled. No conference was changed.', 0, $error);
+        }
+        if (!is_bool($enabled)) {
+            throw new \RuntimeException('FreePBX returned an invalid Sangoma REST conference integration status. No conference was changed.');
+        }
+        if ($enabled) {
+            throw new \RuntimeException('Conference deletion and room-number changes are disabled while the Sangoma REST conference integration is enabled because its separate conference records cannot be compensated safely.');
+        }
+    }
+
+    private static function ensureConferenceLockDirectory(bool $provision): string
+    {
+        $directory = self::CONFERENCE_LOCK_DIRECTORY;
+        if ($provision && !is_dir($directory) && !@mkdir($directory, 0770, true) && !is_dir($directory)) {
+            throw new \RuntimeException('Unable to create the private conference serialization-lock directory.');
+        }
+        clearstatcache(true, $directory);
+        $stat = @lstat($directory);
+        $resolved = @realpath($directory);
+        if ($stat === false || !is_dir($directory) || is_link($directory) || $resolved === false || $resolved !== $directory) {
+            throw new \RuntimeException('The persistent private conference serialization-lock directory is missing, redirected, or invalid. Run the module installer before changing conferences.');
+        }
+        if ($provision) {
+            @chown($directory, 0);
+            @chgrp($directory, 'asterisk');
+            @chmod($directory, 0770);
+            clearstatcache(true, $directory);
+            $stat = @lstat($directory);
+            if ($stat === false) throw new \RuntimeException('The private conference serialization-lock directory could not be verified after provisioning.');
+        }
+        if ((int)$stat['uid'] !== 0) {
+            throw new \RuntimeException('The private conference serialization-lock directory is not owned by root. No conference was changed.');
+        }
+        if ((((int)$stat['mode']) & 0007) !== 0 || ((((int)$stat['mode']) & 0020) === 0)) {
+            throw new \RuntimeException('The private conference serialization-lock directory permissions are unsafe or unusable. Expected root ownership, group write access, and no access for other users.');
+        }
+        if (!is_writable($directory)) {
+            throw new \RuntimeException('The private conference serialization-lock directory is not writable by the FreePBX service. No conference was changed.');
+        }
+        return $directory;
+    }
+
+    private static function withConferenceLocks(array $rooms, callable $operation)
+    {
+        $rooms = array_values(array_unique(array_filter(array_map('strval', $rooms), static fn(string $room): bool => $room !== '')));
+        sort($rooms, SORT_STRING);
+        $directory = self::ensureConferenceLockDirectory(false);
+        $handles = [];
+        try {
+            foreach ($rooms as $room) {
+                $path = $directory . DIRECTORY_SEPARATOR . 'conference-' . hash('sha256', $room) . '.lock';
+                $handle = @fopen($path, 'c+b');
+                if ($handle === false) throw new \RuntimeException("Unable to open the serialization lock for conference {$room}.");
+                @chmod($path, 0660);
+                clearstatcache(true, $path);
+                $stat = @lstat($path);
+                if ($stat === false || !is_file($path) || is_link($path) || ((((int)$stat['mode']) & 0007) !== 0)) {
+                    fclose($handle);
+                    throw new \RuntimeException("The serialization lock for conference {$room} is not a private regular file.");
+                }
+                if (!flock($handle, LOCK_EX)) { fclose($handle); throw new \RuntimeException("Unable to acquire the serialization lock for conference {$room}."); }
+                $handles[] = $handle;
+            }
+            return $operation();
+        } finally {
+            foreach (array_reverse($handles) as $handle) { flock($handle, LOCK_UN); fclose($handle); }
+        }
+    }
+
+    private static function addConferenceArtifact($api, $astman, array $artifact): void
+    {
+        self::assertConferenceArtifact($artifact);
+        $added = $api->addConference($artifact['room'], $artifact['description'], '', '', $artifact['options'], null, '', $artifact['users'], '', 21600);
+        if ($added !== true) throw new \RuntimeException("FreePBX refused to create conference {$artifact['room']}.");
+        self::writeConferenceRuntime($astman, $artifact['room'], self::conferenceRuntimeStateFromArtifact($artifact));
+    }
+
+    private static function updateConferenceArtifact($api, $astman, array $artifact): void
+    {
+        self::assertConferenceArtifact($artifact);
+        $state = self::conferenceSqlStateFromArtifact($artifact);
+        unset($state['exten']);
+        foreach ($state as $key => $value) {
+            if ($api->updateConferenceSettingById($artifact['room'], $key, $value) === false) {
+                throw new \RuntimeException("FreePBX refused to update conference {$artifact['room']} setting {$key}.");
+            }
+        }
+        self::writeConferenceRuntime($astman, $artifact['room'], self::conferenceRuntimeStateFromArtifact($artifact));
+    }
+
+    private static function performConferenceTransition($api, $facade, ?array $from, ?array $to, bool $compensating): void
+    {
+        $astman = $facade->astman;
+        if ($from !== null) self::assertConferenceArtifact($from);
+        if ($to !== null) self::assertConferenceArtifact($to);
+        if ($compensating && $to !== null) {
+            $targetRow = self::conferenceRow($api, $to['room']);
+            if ($targetRow !== null && self::conferenceRowMatchesArtifact($targetRow, $to)) {
+                if ($from === null || hash_equals($from['room'], $to['room'])) {
+                    self::updateConferenceArtifact($api, $astman, $to);
+                    self::assertConferenceRowMatches($api, $astman, $to);
+                    return;
+                }
+                $sourceRow = self::conferenceRow($api, $from['room']);
+                if ($sourceRow !== null && !self::conferenceRowMatchesArtifact($sourceRow, $from)) throw new \RuntimeException("FreePBX conference {$from['room']} does not match the state eligible for compensation.");
+                self::changeConferenceDestination($from['room'], $to['room']);
+                if ($sourceRow !== null && $api->deleteConference($from['room']) !== true) throw new \RuntimeException("FreePBX refused to remove replacement conference {$from['room']} during compensation.");
+                if ($sourceRow === null) self::clearConferenceRuntime($astman, $from['room']);
+                self::updateConferenceArtifact($api, $astman, $to);
+                self::assertConferenceRowMatches($api, $astman, $to);
+                return;
+            }
+            if ($targetRow !== null) {
+                $sameOwnedRoom = $from !== null
+                    && hash_equals($from['room'], $to['room'])
+                    && hash_equals($from['ownership']['descriptionPrefix'], $to['ownership']['descriptionPrefix'])
+                    && str_starts_with((string)($targetRow['description'] ?? ''), $to['ownership']['descriptionPrefix'])
+                    && (string)($targetRow['userpin'] ?? '') === ''
+                    && (string)($targetRow['adminpin'] ?? '') === '';
+                if (!$sameOwnedRoom) throw new \RuntimeException("FreePBX conference {$to['room']} conflicts with the state required for compensation.");
+            }
+        }
+        $sameRoom = $from !== null && $to !== null && hash_equals($from['room'], $to['room']);
+        if ($sameRoom) {
+            $row = self::conferenceRow($api, $to['room']);
+            if ($row === null) self::addConferenceArtifact($api, $astman, $to);
+            else self::updateConferenceArtifact($api, $astman, $to);
+        } else {
+            if ($to !== null && !$compensating) {
+                self::assertConferenceTargetAvailable($to['room']);
+                self::assertConferenceRoomAbsent($api, $astman, $to['room']);
+            }
+            if ($from !== null && $to !== null) {
+                if (self::conferenceRow($api, $to['room']) === null) self::addConferenceArtifact($api, $astman, $to);
+                self::assertConferenceRowMatches($api, $astman, $to);
+                self::changeConferenceDestination($from['room'], $to['room']);
+                $sourceRow = self::conferenceRow($api, $from['room']);
+                if ($sourceRow === null) self::clearConferenceRuntime($astman, $from['room']);
+                elseif (!self::conferenceRowMatchesArtifact($sourceRow, $from)) throw new \RuntimeException("FreePBX conference {$from['room']} does not match the state eligible for removal.");
+                elseif ($api->deleteConference($from['room']) !== true) throw new \RuntimeException("FreePBX refused to delete conference {$from['room']}.");
+            } elseif ($from !== null) {
+                $sourceRow = self::conferenceRow($api, $from['room']);
+                if ($sourceRow === null) {
+                    if (!$compensating) throw new \RuntimeException("The module-owned FreePBX conference {$from['room']} disappeared before deletion.");
+                    self::clearConferenceRuntime($astman, $from['room']);
+                } elseif (!self::conferenceRowMatchesArtifact($sourceRow, $from)) {
+                    if (!$compensating) throw new \RuntimeException("FreePBX conference {$from['room']} changed outside MaterialPBX. No conference was deleted.");
+                    self::writeConferenceRuntime($astman, $from['room'], self::conferenceRuntimeStateFromRow($sourceRow, $facade->Recordings));
+                    return;
+                } elseif ($api->deleteConference($from['room']) !== true) {
+                    throw new \RuntimeException("FreePBX refused to delete conference {$from['room']}.");
+                }
+            } elseif ($to !== null) {
+                if (self::conferenceRow($api, $to['room']) === null) self::addConferenceArtifact($api, $astman, $to);
+                else self::updateConferenceArtifact($api, $astman, $to);
+            }
+        }
+        if ($to !== null) self::assertConferenceRowMatches($api, $astman, $to);
+        elseif ($from !== null) self::assertConferenceRoomAbsent($api, $astman, $from['room']);
+    }
+
+    private function transitionConferenceArtifacts(?array $from, ?array $to): void
+    {
+        if ($from === null && $to === null) return;
+        $rooms = array_filter([$from['room'] ?? null, $to['room'] ?? null]);
+        self::withConferenceLocks($rooms, function () use ($from, $to): void {
+            $api = $this->conferencesApi();
+            $facade = $this->conferenceFacade();
+            $removesOrMovesRoom = $from !== null && ($to === null || !hash_equals($from['room'], $to['room']));
+            if ($removesOrMovesRoom) self::assertConferenceDeletionIntegrationAvailable($facade);
+            if ($from !== null) {
+                self::assertConferenceRoomInRange($from['room']);
+                self::assertConferenceRowMatches($api, $facade->astman, $from);
+            }
+            elseif ($to !== null) {
+                self::assertConferenceTargetAvailable($to['room']);
+                self::assertConferenceRoomAbsent($api, $facade->astman, $to['room']);
+            }
+            if ($from !== null && $to !== null && hash_equals(self::canonicalJson($from), self::canonicalJson($to))) return;
+            if ($from !== null && $to !== null && !hash_equals($from['room'], $to['room'])) {
+                self::assertConferenceTargetAvailable($to['room']);
+                self::assertConferenceRoomAbsent($api, $facade->astman, $to['room']);
+            }
+            try {
+                self::performConferenceTransition($api, $facade, $from, $to, false);
+            } catch (\Throwable $error) {
+                try {
+                    self::performConferenceTransition($api, $facade, $to, $from, true);
+                } catch (\Throwable $compensationError) {
+                    throw new \RuntimeException('The FreePBX conference change failed and explicit BMO compensation also failed: ' . $compensationError->getMessage(), 0, $error);
+                }
+                throw new \RuntimeException('The FreePBX conference change failed; explicit BMO compensation restored the prior conference state.', 0, $error);
+            }
+        });
+    }
+
+    private function compensateConferenceArtifacts(?array $from, ?array $to): void
+    {
+        if ($from === null && $to === null) return;
+        $rooms = array_filter([$from['room'] ?? null, $to['room'] ?? null]);
+        self::withConferenceLocks($rooms, function () use ($from, $to): void {
+            self::performConferenceTransition($this->conferencesApi(), $this->conferenceFacade(), $from, $to, true);
+        });
     }
 
     private function appendPjsipSection(string $name, array $fields): void

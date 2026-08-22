@@ -2,13 +2,15 @@
 
 ## Behavior
 
-MaterialPBX applies extensions, PJSIP trunks, inbound routes, outbound routes, IVRs, queues, ring groups, voicemail boxes, and time conditions through feature-specific bounded schemas. A desired resource is always saved first. Live application occurs only when the resource maps to a registered feature adapter and its complete normalized payload validates.
+MaterialPBX applies extensions, PJSIP trunks, inbound routes, outbound routes, IVRs, queues, ring groups, conferences, voicemail boxes, and time conditions through feature-specific bounded schemas. A desired resource is always saved first. Live application occurs only when the resource maps to a registered feature adapter and its complete normalized payload validates.
 
 Each supported application returns a plan with ordered validation, synchronization, and reload steps; validation evidence; applied and reloaded states; partial-failure state; and an exact warning. An unsupported kind or invalid configuration returns `unsupported` and does not call FreePBX. Saving a draft is never reported as a live PBX mutation.
 
 ## Configuration boundaries
 
 The schemas accept structured identifiers, number patterns, destinations, strategies, members, time windows, and bounded scalar settings. They reject unexpected fields. Trunks support PJSIP only and refer to credentials by an opaque credential identifier; secret values never enter the resource payload. Routes accept bounded dial-pattern syntax but never raw dialplan applications or executable configuration fragments.
+
+The `conference` schema requires a 2–12 digit number, an explicit whole-number participant limit from 2 through 200, and five boolean choices. All five booleans default to false. The participant limit has no protocol default because Asterisk's native unlimited value is outside the guided bound. Quiet mode and recorded-name join/leave announcements are mutually exclusive. No PIN, moderator, recording path, music class, shell text, raw dialplan, or arbitrary configuration field is accepted.
 
 The helper exposes fixed `freepbx.application.apply` and `freepbx.application.remove` actions. It revalidates the normalized payload, maps the feature through a fixed registry, and invokes only the MaterialPBX FreePBX bridge command with validated kind and identifier arguments. It does not invoke a shell.
 
@@ -24,4 +26,4 @@ The helper exposes fixed `freepbx.application.apply` and `freepbx.application.re
 
 Typed validation prevents arbitrary shell, raw dialplan, and configuration injection at this boundary. It does not by itself prove that the FreePBX bridge compiled every resource into native module tables or that a carrier accepts a trunk or route. Emergency routing, premium-rate controls, credentials, TLS certificates, external announcements, and jurisdiction-specific behavior need separate reviewed adapters.
 
-The native compiler registry currently generates module-owned FreePBX hook output only for the documented ring-group subset. Other typed features remain explicit native-compiler unsupported. A supported plan proves bounded input and command routing; the compilation, reload, and runtime-verification fields state the later outcomes independently.
+The native compiler registry generates module-owned artifacts for the documented bounded subsets. Conferences use the installed FreePBX 17 Conferences BMO API rather than custom configuration files. A supported plan proves bounded input and command routing; the compilation, reload, and runtime-verification fields state the later outcomes independently.
