@@ -1449,7 +1449,7 @@ onBeforeUnmount(() => {
 
     <v-dialog :model-value="editorOpen" :max-width="activePage === 'conferences' ? 920 : 760" content-class="resource-editor-dialog" @update:model-value="requestEditorClose">
       <v-card :class="{ 'conference-editor-card': activePage === 'conferences' }">
-        <v-card-title :class="{ 'conference-editor-title': activePage === 'conferences' }"><span>{{ editingResourceId ? 'Edit' : 'Create' }} {{ activePage === 'conferences' ? 'conference room' : page.label }}</span><v-btn v-if="activePage === 'conferences'" icon="mdi-close" variant="text" aria-label="Close conference editor" @click="discardEditorDraft" /></v-card-title>
+        <v-card-title :class="{ 'conference-editor-title': activePage === 'conferences' }"><span>{{ editingResourceId ? 'Edit' : 'Create' }} {{ activePage === 'conferences' ? 'conference room' : page.label }}</span><v-btn v-if="activePage === 'conferences'" icon variant="text" aria-label="Close conference editor" @click="discardEditorDraft"><span class="conference-close-glyph" aria-hidden="true">×</span></v-btn></v-card-title>
         <v-card-subtitle>{{ page.description }}</v-card-subtitle>
         <v-card-text>
           <section v-if="activePage === 'conferences'" class="conference-editor" aria-label="Guided conference room settings">

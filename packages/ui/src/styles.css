@@ -267,6 +267,7 @@ h2 { font-size: clamp(1.45rem, 2vw, 2rem); }
 .conference-editor-card { max-height: calc(100vh - 48px); overflow: hidden !important; background: rgb(var(--v-theme-surface)); }
 .conference-editor-card > .v-card-text { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .conference-editor-title { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 16px; padding-right: 12px; }
+.conference-close-glyph { display: block; font: 400 1.75rem/1 var(--pbx-font); }
 .conference-editor-actions { flex: 0 0 auto; min-height: 64px; padding: 10px 20px; border-top: 1px solid rgb(var(--v-theme-outline-variant)); background: rgb(var(--v-theme-surface-container-high)); box-shadow: 0 -6px 18px color-mix(in srgb, rgb(var(--v-theme-shadow)) 12%, transparent); z-index: 2; }
 .conference-editor { display: grid; gap: 24px; }
 .conference-presets, .conference-section, .conference-review { padding: 20px; border: 1px solid rgb(var(--v-theme-outline-variant)); border-radius: 24px; background: rgb(var(--v-theme-surface-container-low)); }

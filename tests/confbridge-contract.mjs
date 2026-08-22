@@ -144,6 +144,7 @@ const uiRequirements = [
   'content-class="resource-editor-dialog"',
   "'conference-editor-card': activePage === 'conferences'",
   'Close conference editor',
+  'conference-close-glyph',
   "activePage === 'conferences' ? 'conference room' : page.label",
   ":aria-describedby=\"conferenceErrorMessages('number').length ? 'conference-number-help conference-number-error' : 'conference-number-help'\"",
   "'conference-editor-actions': activePage === 'conferences'",
