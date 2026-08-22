@@ -42,7 +42,7 @@ jobs:
           $notes = @"
           # MaterialPBX $tag
 
-          Windows Squirrel installer generated from commit `$env:GITHUB_SHA`.
+          Windows Squirrel installer generated from commit ``$env:GITHUB_SHA``.
 
           > [!WARNING]
           > The installer is intentionally unsigned and may show an unknown-publisher or SmartScreen warning.
@@ -57,8 +57,8 @@ jobs:
 
           ## Workflow timing
 
-          - Workflow started: `$($startedAt.UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ssZ'))`
-          - Workflow completed: `$($completedAt.UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ssZ'))`
-          - Workflow duration: `$('{0:00}:{1:00}:{2:00}' -f [Math]::Floor($duration.TotalHours), $duration.Minutes, $duration.Seconds)`
+          - Workflow started: ``$($startedAt.UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ssZ'))``
+          - Workflow completed: ``$($completedAt.UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ssZ'))``
+          - Workflow duration: ``$('{0:00}:{1:00}:{2:00}' -f [Math]::Floor($duration.TotalHours), $duration.Minutes, $duration.Seconds)``
           "@
           gh release edit $tag --notes ($notes + $timing)

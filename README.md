@@ -3,7 +3,7 @@
 MaterialPBX is a guided, visual control surface for FreePBX and Asterisk. It keeps a beginner-friendly path beside an expert view, replaces configuration-only forms with typed controls wherever values can be discovered, and labels every disconnected or unverified state honestly.
 
 - Documentation site: <https://ding-ding-projects.github.io/MaterialPBX/>
-- Install: no verified installer is published yet; the site deliberately hides the download action until one exists.
+- Install: [MaterialPBX 0.1.0 for Windows](https://github.com/Ding-Ding-Projects/MaterialPBX/releases/download/build-3-5147a89/MaterialPBX-0.1.0-x64-Setup.exe) — verified unsigned Squirrel installer built from `5147a896f8c65b863607378480d5fe46df04e31f`.
 - Delivery: production Linux hosting plus a Windows desktop lab.
 - License: GPL-3.0-or-later.
 
