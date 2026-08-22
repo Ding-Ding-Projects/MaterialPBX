@@ -5,6 +5,7 @@
 ### Changed
 
 - Added a transactional native compiler registry for the safely bounded ring-group subset. It previews module-owned output, snapshots prior artifacts, applies and removes them through the FreePBX generation hook, provides rollback identity, and reports stored desired state, compiled state, reload state, and pending runtime verification separately.
+- Added the bounded `queue-get-config-v1` compiler for enabled queues with 1–256 unique validated members, supported Asterisk strategies, terminate failover, and a 1–3600 second timeout. Disabled queues now remove prior output through the same transactional snapshot path. The queue editor gained guided member add/remove controls.
 - Kept extensions, trunks, inbound and outbound routes, IVRs, queues, voicemail, and time conditions explicitly unsupported for native compilation until documented FreePBX APIs or reviewed compilers exist. Disabled ring groups remove prior compiled output transactionally; unsupported edits disclose when retained output may differ from desired state.
 - Recorded deployment preflight constraints without changing a server: the bootstrap currently supports Debian 12 on amd64 only; the inventoried general host is ARM64, the x86_64 host runs Debian 13 and already uses ports 80 and 443 for the unrelated HeapAndyville proxy, and the other ARM64 host is busy.
 - Replaced the generic disconnected shell for extensions, trunks, incoming and outgoing routes, phone menus, queues, live operations, and paired servers with feature-specific visual control rooms and typed editors.
@@ -15,7 +16,7 @@
 
 ### Verification
 
-The protocol, privileged-helper, and control-plane package builds completed. PHP syntax, FreePBX module loading, generated dialplan, reload, rollback, live calls, and runtime behavior were not verified because the build host has no PHP executable and no suitable deployment host was mutated. This ultra-speed change did not run tests, lint, separate type checking, accessibility or security suites, smoke checks, or screenshots. `build-112-2d9d7a6` is the latest verified release baseline before publication for commit `44111eed9a6daccce70ca6a6eee570f3da8d7c4a` finishes; no later release is claimed here.
+The protocol and control-plane package builds completed after the queue compiler update. PHP syntax, FreePBX module loading, generated dialplan, reload, rollback, live calls, and runtime behavior were not verified because the build host has no PHP executable and no suitable deployment host was mutated. This ultra-speed change did not run tests, lint, separate type checking, accessibility or security suites, smoke checks, or screenshots. `build-112-2d9d7a6` is the latest verified release baseline before publication for commit `44111eed9a6daccce70ca6a6eee570f3da8d7c4a`; no later release is claimed here beyond its published build/package evidence.
 
 ## 0.1.0 · 2026-08-22
 
