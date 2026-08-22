@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "freepbxInstaller": {
+    "repository": "https://github.com/FreePBX/sng_freepbx_debian_install",
+    "commit": "b023b8426786a518d25dfc0d11ba0c0314fcd927",
+    "path": "sng_freepbx_debian_install.sh",
+    "sha256": "afef5e4b480cf545b2035f92068dc2fdd32452989d170a16a84acb6e37b7d564"
+  }
+}

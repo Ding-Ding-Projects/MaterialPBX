@@ -1,0 +1,120 @@
+name: materialpbx
+
+services:
+  pbx:
+    build:
+      context: .
+      dockerfile: deploy/pbx/Dockerfile
+    image: materialpbx/pbx:${MATERIALPBX_VERSION:-dev}
+    hostname: ${MATERIALPBX_HOSTNAME:-materialpbx}
+    network_mode: host
+    cgroup: host
+    cgroup_parent: materialpbx.slice
+    stop_grace_period: 2m
+    cap_drop: [ALL]
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - KILL
+      - NET_ADMIN
+      - NET_BIND_SERVICE
+      - NET_RAW
+      - SETGID
+      - SETUID
+      - SYS_ADMIN
+      - SYS_CHROOT
+      - SYS_NICE
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /run:size=64m,mode=755
+      - /run/lock:size=16m,mode=755
+      - /tmp:size=256m,mode=1777
+    volumes:
+      - materialpbx-mysql:/var/lib/mysql
+      - materialpbx-asterisk-etc:/etc/asterisk
+      - materialpbx-asterisk-lib:/var/lib/asterisk
+      - materialpbx-asterisk-spool:/var/spool/asterisk
+      - materialpbx-www:/var/www
+      - materialpbx-data:/var/lib/materialpbx
+      - materialpbx-helper-socket:/run/materialpbx
+      - materialpbx-helper-runtime:/opt/materialpbx-helper:ro
+      - ${MATERIALPBX_SECRET_DIR:?Set MATERIALPBX_SECRET_DIR}:/run/materialpbx-secrets
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    restart: unless-stopped
+
+  privileged-helper-image:
+    build:
+      context: .
+      dockerfile: deploy/helper/Dockerfile
+    image: materialpbx/privileged-helper:${MATERIALPBX_VERSION:-dev}
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["cp -a /opt/materialpbx-helper/. /export/"]
+    volumes:
+      - materialpbx-helper-runtime:/export
+    network_mode: none
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: "no"
+
+  control-plane:
+    build:
+      context: .
+      dockerfile: deploy/control-plane/Dockerfile
+    image: materialpbx/control-plane:${MATERIALPBX_VERSION:-dev}
+    network_mode: service:pbx
+    depends_on:
+      pbx:
+        condition: service_started
+      privileged-helper-image:
+        condition: service_completed_successfully
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    environment:
+      MATERIALPBX_BIND: 127.0.0.1
+      MATERIALPBX_PORT: ${MATERIALPBX_CONTROL_PORT:-4280}
+      MATERIALPBX_PUBLIC_URL: ${MATERIALPBX_PUBLIC_URL:?Set MATERIALPBX_PUBLIC_URL to the externally verified HTTPS URL}
+      MATERIALPBX_NODE_NAME: ${MATERIALPBX_NODE_NAME:-MaterialPBX}
+      MATERIALPBX_DATA_DIR: /var/lib/materialpbx/control-plane
+      MATERIALPBX_ADMIN_TOKEN_FILE: /run/secrets/admin-token
+      ASTERISK_AMI_SECRET_FILE: /run/secrets/ami-secret
+      FREEPBX_DATABASE_DSN_FILE: /run/secrets/freepbx-dsn
+      PRIVILEGED_HELPER_SOCKET: /run/materialpbx/privileged.sock
+      ASTERISK_RECORDINGS_DIR: /var/spool/asterisk/monitor
+      ASTERISK_ARI_URL: http://127.0.0.1:8088/ari/
+      ASTERISK_ARI_USERNAME: materialpbx
+      ASTERISK_ARI_PASSWORD_FILE: /run/secrets/ari-secret
+    secrets:
+      - admin-token
+      - ami-secret
+      - ari-secret
+      - freepbx-dsn
+    volumes:
+      - materialpbx-data:/var/lib/materialpbx
+      - materialpbx-helper-socket:/run/materialpbx
+      - materialpbx-asterisk-spool:/var/spool/asterisk:ro
+    restart: unless-stopped
+
+secrets:
+  admin-token:
+    file: ${MATERIALPBX_SECRET_DIR:?Set MATERIALPBX_SECRET_DIR}/admin-token
+  ami-secret:
+    file: ${MATERIALPBX_SECRET_DIR}/ami-secret
+  ari-secret:
+    file: ${MATERIALPBX_SECRET_DIR}/ari-secret
+  freepbx-dsn:
+    file: ${MATERIALPBX_SECRET_DIR}/freepbx-dsn
+
+volumes:
+  materialpbx-mysql:
+  materialpbx-asterisk-etc:
+  materialpbx-asterisk-lib:
+  materialpbx-asterisk-spool:
+  materialpbx-www:
+  materialpbx-data:
+  materialpbx-helper-socket:
+  materialpbx-helper-runtime:

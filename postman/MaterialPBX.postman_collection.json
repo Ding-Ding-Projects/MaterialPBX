@@ -1,0 +1,53 @@
+{
+  "info": {
+    "name": "MaterialPBX control plane",
+    "description": "Pre-release administrator API collection. Store credentials only in a private local environment.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{adminToken}}", "type": "string" }] },
+  "variable": [
+    { "key": "baseUrl", "value": "https://pbx.example.net/control" },
+    { "key": "adminToken", "value": "" },
+    { "key": "resourceKind", "value": "extensions" },
+    { "key": "resourceId", "value": "101" }
+  ],
+  "item": [
+    {
+      "name": "System",
+      "item": [
+        { "name": "Health", "request": { "auth": { "type": "noauth" }, "method": "GET", "url": "{{baseUrl}}/healthz" } },
+        { "name": "Status", "request": { "method": "GET", "url": "{{baseUrl}}/v1/system/status" } },
+        { "name": "Capabilities", "request": { "method": "GET", "url": "{{baseUrl}}/v1/system/capabilities" } }
+      ]
+    },
+    {
+      "name": "Resources",
+      "item": [
+        { "name": "List", "request": { "method": "GET", "url": "{{baseUrl}}/v1/resources?kind={{resourceKind}}" } },
+        { "name": "Upsert", "request": { "method": "PUT", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"displayName\": \"Extension 101\",\n  \"enabled\": true,\n  \"configuration\": {}\n}" }, "url": "{{baseUrl}}/v1/resources/{{resourceKind}}/{{resourceId}}" } },
+        { "name": "Get", "request": { "method": "GET", "url": "{{baseUrl}}/v1/resources/{{resourceKind}}/{{resourceId}}" } },
+        { "name": "Delete", "request": { "method": "DELETE", "url": "{{baseUrl}}/v1/resources/{{resourceKind}}/{{resourceId}}" } }
+      ]
+    },
+    {
+      "name": "Runtime and records",
+      "item": [
+        { "name": "Channels", "request": { "method": "GET", "url": "{{baseUrl}}/v1/runtime/channels" } },
+        { "name": "Endpoints", "request": { "method": "GET", "url": "{{baseUrl}}/v1/runtime/endpoints" } },
+        { "name": "Bridges", "request": { "method": "GET", "url": "{{baseUrl}}/v1/runtime/bridges" } },
+        { "name": "CDR", "request": { "method": "GET", "url": "{{baseUrl}}/v1/cdr?limit=100&offset=0" } },
+        { "name": "CEL", "request": { "method": "GET", "url": "{{baseUrl}}/v1/cel?limit=100&offset=0" } },
+        { "name": "Recordings", "request": { "method": "GET", "url": "{{baseUrl}}/v1/recordings?limit=100" } },
+        { "name": "Backups", "request": { "method": "GET", "url": "{{baseUrl}}/v1/backups" } }
+      ]
+    },
+    {
+      "name": "Federation",
+      "item": [
+        { "name": "Identity", "request": { "method": "GET", "url": "{{baseUrl}}/v1/federation/identity" } },
+        { "name": "Peers", "request": { "method": "GET", "url": "{{baseUrl}}/v1/federation/peers" } },
+        { "name": "Create invitation", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"capabilities\": [\"route-calls\", \"share-health\"],\n  \"dialPrefixes\": [\"+1416\"],\n  \"inboundContexts\": [\"from-federation\"],\n  \"maxConcurrentCalls\": 5,\n  \"maxHopCount\": 2\n}" }, "url": "{{baseUrl}}/v1/federation/invitations" } }
+      ]
+    }
+  ]
+}
