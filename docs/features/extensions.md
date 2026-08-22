@@ -4,6 +4,8 @@
 
 Extensions are short internal numbers. They map a reachable number such as 101 to one person, device set, or call flow.
 
+The visual control room shows the live extension count, server access level, PBX health, and one card per real record returned by the control service. The editor guides extension number, person assignment, ring time, and voicemail with a three-digit starting recommendation instead of exposing raw configuration as the only route.
+
 The guided view presents validated pickers, switches, ranges, and clear suggested defaults. The expert view exposes the underlying Asterisk and FreePBX concepts without making raw configuration text the only path.
 
 ## Configuration

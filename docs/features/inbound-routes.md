@@ -4,6 +4,8 @@
 
 Incoming routes decide where calls to each public number are sent.
 
+The incoming-call map pairs a full public number with a typed destination picker, enabled state, and plain-language fallback guidance. It never invents a number or claims a route is live without a control-service response.
+
 The guided view presents validated pickers, switches, ranges, and clear suggested defaults. The expert view exposes the underlying Asterisk and FreePBX concepts without making raw configuration text the only path.
 
 ## Configuration

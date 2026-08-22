@@ -4,6 +4,8 @@
 
 Operations views expose Asterisk, FreePBX, registrations, active channels, queues, resources, logs, and health timestamps.
 
+The live operations control room uses the health and capability preflight as its source. Active calls, registered devices, server warnings, API version, and check time remain blank or explicitly unavailable until a compatible server returns them. The view stays read-only unless the server grants the specific action capability.
+
 The guided view presents validated pickers, switches, ranges, and clear suggested defaults. The expert view exposes the underlying Asterisk and FreePBX concepts without making raw configuration text the only path.
 
 ## Configuration

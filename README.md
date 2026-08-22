@@ -53,6 +53,10 @@ The browser and desktop shells are clients of a typed control-service contract. 
 
 The Windows desktop app is a lab and management client. The production telephony runtime belongs on the dedicated Linux host described by the deployment artifacts. The public site is landing, documentation, download, status, settings, and link content only; it is not the PBX runtime.
 
+The web and Windows interfaces can preflight a real MaterialPBX control-service endpoint, read server health and the evidence-backed capability registry, distinguish offline, permission, incompatibility, degraded, read-only, and live states, and load only records returned by that server. The successful non-secret endpoint is stored locally; the admin credential exists only in the current in-memory client and is discarded on disconnect or reload. The public documentation site never makes this connection.
+
+The release and Pages workflows now accept push events only on `main`. Commit `41d75a5f2eb7cc7ac1426ee12fb0c4a668ed10f9` added that restriction after release-created tags recursively triggered duplicate releases. Historical duplicate releases remain immutable, and no tags or releases were deleted.
+
 MaterialPBX consumes the published `@worldlens/design-system` package. Shared colors, themes, component defaults, and tokens stay owned by WorldLens instead of being copied here.
 
 </details>
