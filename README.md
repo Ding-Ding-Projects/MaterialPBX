@@ -74,9 +74,9 @@ The focused release-evidence contract is `pnpm check:release-evidence`. See [Rel
 <details>
 <summary>Release evidence and scale estimate</summary>
 
-The latest measured committed baseline is `3f31f818e04316d7edfe6174297d0f160f2c129b`. The committed counter reports 6,239 nonblank hand-written project lines at that commit; generated files and dependency lockfiles are excluded from that project figure and remain visible in separate rows.
+The latest measured committed baseline is `7de68dbfbd6c951038d37e7d2dbef06a64dcc2b4`. The committed counter reports 14,011 total and 12,364 nonblank hand-written project lines at that commit; generated files and dependency lockfiles are excluded from that project figure and remain visible in separate rows.
 
-Estimated manual implementation effort: **about 260–520 engineer-days (12–24 engineer-months)**. This is an estimate, not measured history. The disclosed calculation is `6,239 nonblank project lines ÷ 30–15 reviewed production lines per engineer-day × 1.25 integration/documentation multiplier`. It excludes generated assets, dependency lockfiles, installed dependencies, and build output exactly as the counter does. The range is informational and is not a productivity claim.
+Estimated manual implementation effort: **about 515–1,030 engineer-days (24–49 engineer-months)**. This is an estimate, not measured history. The disclosed calculation is `12,364 nonblank project lines ÷ 30–15 reviewed production lines per engineer-day × 1.25 integration/documentation multiplier`. It excludes generated assets, dependency lockfiles, installed dependencies, and build output exactly as the counter does. The range is informational and is not a productivity claim.
 
 Each successful release runs the same counter at its exact target commit, publishes the full table and attribution arithmetic in its release notes, and supersedes this convenience baseline with release-specific evidence.
 
