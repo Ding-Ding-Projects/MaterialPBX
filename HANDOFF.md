@@ -14,17 +14,16 @@
 
 ## Build state
 
-- `pnpm build:web`, `pnpm build:site`, and `pnpm build:desktop` completed from the visual-control-room source. A root recursive build attempt stopped in the runtime-owned protocol package before these explicit builds because that fresh checkout had not yet installed its workspace dependencies; it is not reported as evidence for this lane.
-- `pnpm package:windows` completed with `electron-builder` 26.15.3 and explicit signing disablement.
-- Generated unsigned Squirrel files: `MaterialPBX-0.1.0-x64-Setup.exe` (135,984,640 bytes, SHA-256 `cdd3de7af4b12901b49d5514a36fa6b752971137a8ee43701209dd076036fe06`), `materialpbx-desktop-0.1.0-full.nupkg` (134,891,025 bytes, SHA-256 `24fdd7bcb156203e92cfd3d4776be4f3818a4722b1917397b121a0c08e3c8851`), and `RELEASES` (SHA-256 `cbfd0f3073cfea8681bbb643696db4ba1065f4a6aef2dbec7bfc64608eb713b3`).
-- After those completed builds, the final source pass wired previously decorative buttons to real handlers or honest disabled explanations, added the shared regex-builder dialog, and updated public records. The orchestrator explicitly requested that completed builds not be rerun, so those last presentation and handler edits are committed without a newer bundle verdict.
+- `pnpm build:site` completed after the stable latest-release installer-link update. Vite reported its existing advisory that the initial CSS and JavaScript chunks exceed 500 kB; the build completed successfully.
+- Integrated main merge `bccd0d5335c6ef47b2a6999363a776b1f4facc85` was independently built for the web interface, documentation site, and desktop renderer, then packaged with `electron-builder` 26.15.3 and explicit signing disablement.
+- Generated unsigned Squirrel files: `MaterialPBX-0.1.0-x64-Setup.exe` (135,985,664 bytes, SHA-256 `80537386cdbd90f452d324f2c80fd0b33ab88855b83ee6cd1422a4b96596ab7f`), `materialpbx-desktop-0.1.0-full.nupkg` (134,892,401 bytes, SHA-256 `26eed931ac4dface36ddd27f75fc4bcdabbf3e393bc98966d9604a65fcfd5ec9`), and `RELEASES` (SHA-256 `c74aa79aaca493bc47ddbf6014e86bea451c81f2bbf946470677b9cfe7b32aa7`).
 - The active ultra-speed workflow did not run tests, lint, type checking, accessibility checks, security checks, smoke checks, or screenshots. Successful compilation and packaging are not runtime verification.
 
 ## External dependencies
 
 - The WorldLens design package is consumed from the immutable `worldlens-design-system-0.1.0.tgz` release asset. Published SHA-256: `cd7ccd70a1b73a3bf65914c3901d9c8d45d4b1dacd2956eb70a0db4524cb96eb`; source commit: `e6638a7e608e221c6bdd77f638d014368ae3d04f`.
 - The runtime lane owns the control service, deployment artifacts, protocol implementation, and production telephony behavior. This UI sends only the documented control-service requests and never treats an unconfirmed response as success.
-- Release `build-3-5147a89` provides the verified unsigned MaterialPBX 0.1.0 Windows installer built from commit `5147a896f8c65b863607378480d5fe46df04e31f`; the documentation site links it directly.
+- The documentation site uses GitHub's stable latest-release asset route for the latest verified non-draft unsigned MaterialPBX 0.1.0 Windows installer. It does not hardcode a release tag or source commit that can become stale.
 - GitHub Pages is live at <https://ding-ding-projects.github.io/MaterialPBX/>.
 - Commit `41d75a5f2eb7cc7ac1426ee12fb0c4a668ed10f9` restricted release and Pages push triggers to `main` after release-created tags recursively triggered duplicate releases. Historical duplicates remain immutable; no tags or releases were deleted.
 

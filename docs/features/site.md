@@ -4,7 +4,7 @@
 
 The public site is for landing, documentation, downloads, status, settings, and links. It is not the PBX runtime.
 
-It does not connect to a control service, load PBX records, or send PBX changes. Feature pages explain the real installed and hosted controls without sample live data. The home page links the verified unsigned MaterialPBX 0.1.0 Windows installer from release `build-3-5147a89`, built from commit `5147a896f8c65b863607378480d5fe46df04e31f`.
+It does not connect to a control service, load PBX records, or send PBX changes. Feature pages explain the real installed and hosted controls without sample live data. The home page uses GitHub's stable latest-release asset route for the latest verified non-draft unsigned MaterialPBX 0.1.0 Windows installer. Windows may show an unknown-publisher or SmartScreen warning because code signing is intentionally disabled.
 
 The guided view presents validated pickers, switches, ranges, and clear suggested defaults. The expert view exposes the underlying Asterisk and FreePBX concepts without making raw configuration text the only path.
 
