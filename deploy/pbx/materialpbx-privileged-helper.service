@@ -1,0 +1,29 @@
+[Unit]
+Description=MaterialPBX bounded privileged helper
+After=freepbx.service asterisk.service
+RequiresMountsFor=/opt/materialpbx-helper /run/materialpbx
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/node /opt/materialpbx-helper/dist/server.js
+Environment=PRIVILEGED_HELPER_SOCKET=/run/materialpbx/privileged.sock
+Environment=MATERIALPBX_SOCKET_GID=991
+Restart=on-failure
+RestartSec=3
+RuntimeDirectory=materialpbx
+RuntimeDirectoryMode=0750
+UMask=0027
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+ReadWritePaths=/etc/asterisk /var/lib/asterisk /var/spool/asterisk /var/lib/freepbx /var/log/asterisk /var/www/html/admin/modules/materialpbx /run/materialpbx
+
+[Install]
+WantedBy=multi-user.target

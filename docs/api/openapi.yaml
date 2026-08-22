@@ -1,0 +1,150 @@
+openapi: 3.1.0
+info:
+  title: MaterialPBX control-plane API
+  version: 0.1.0
+  description: Pre-release typed control API for Asterisk 22, FreePBX 17, and paired-server federation.
+servers:
+  - url: https://pbx.example.net/control
+security:
+  - bearerAdmin: []
+paths:
+  /healthz:
+    get:
+      security: []
+      operationId: health
+      responses:
+        '200': { description: Process is accepting requests }
+  /v1/system/status:
+    get:
+      operationId: systemStatus
+      responses:
+        '200': { description: Adapter state, identity, capability evidence, and warnings }
+  /v1/system/capabilities:
+    get:
+      operationId: capabilities
+      responses:
+        '200': { description: Runtime-probed FreePBX and Asterisk capabilities }
+  /v1/resources:
+    get:
+      operationId: listResources
+      parameters:
+        - { name: kind, in: query, schema: { $ref: '#/components/schemas/ResourceKind' } }
+      responses:
+        '200': { description: Resources, schema: { type: object } }
+  /v1/resources/{kind}/{id}:
+    parameters:
+      - { name: kind, in: path, required: true, schema: { $ref: '#/components/schemas/ResourceKind' } }
+      - { name: id, in: path, required: true, schema: { type: string, pattern: '^[A-Za-z0-9_.:@+-]+$', maxLength: 128 } }
+    get:
+      operationId: getResource
+      responses:
+        '200': { description: Resource, content: { application/json: { schema: { $ref: '#/components/schemas/ManagedResource' } } } }
+        '404': { $ref: '#/components/responses/Error' }
+    put:
+      operationId: putResource
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/ResourceMutation' } } }
+      responses:
+        '200': { description: Durable resource and PBX application result }
+    delete:
+      operationId: deleteResource
+      parameters:
+        - { name: expectedRevision, in: query, schema: { type: integer, minimum: 0 } }
+      responses:
+        '200': { description: Deletion and PBX application result }
+  /v1/runtime/channels:
+    get: { operationId: runtimeChannels, responses: { '200': { description: ARI channels } } }
+  /v1/runtime/endpoints:
+    get: { operationId: runtimeEndpoints, responses: { '200': { description: ARI endpoints } } }
+  /v1/runtime/bridges:
+    get: { operationId: runtimeBridges, responses: { '200': { description: ARI bridges } } }
+  /v1/runtime/originate:
+    post:
+      operationId: originate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channel, context, extension, priority]
+              properties:
+                channel: { type: string, maxLength: 256 }
+                context: { type: string, maxLength: 80 }
+                extension: { type: string, maxLength: 80 }
+                priority: { type: integer, minimum: 1, maximum: 100 }
+                callerId: { type: string, maxLength: 128 }
+                timeoutMs: { type: integer, minimum: 1000, maximum: 120000, default: 30000 }
+      responses: { '200': { description: AMI action result } }
+  /v1/runtime/hangup:
+    post:
+      operationId: hangup
+      responses: { '200': { description: AMI action result } }
+  /v1/cdr:
+    get: { operationId: cdr, responses: { '200': { description: Bounded CDR page }, '503': { $ref: '#/components/responses/Error' } } }
+  /v1/cel:
+    get: { operationId: cel, responses: { '200': { description: Bounded CEL page }, '503': { $ref: '#/components/responses/Error' } } }
+  /v1/recordings:
+    get: { operationId: recordings, responses: { '200': { description: Bounded recording metadata page } } }
+  /v1/backups:
+    get: { operationId: backupStatus, responses: { '200': { description: FreePBX backup status } } }
+    post: { operationId: startBackup, responses: { '200': { description: FreePBX backup command result } } }
+  /v1/federation/identity:
+    get: { operationId: federationIdentity, responses: { '200': { description: Public local federation identity } } }
+  /v1/federation/peers:
+    get: { operationId: federationPeers, responses: { '200': { description: Peers without session keys } } }
+  /v1/federation/invitations:
+    post:
+      operationId: createInvitation
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/FederationScope' } } } }
+      responses: { '200': { description: Signed expiring invitation } }
+  /v1/federation/messages:
+    post:
+      security: []
+      operationId: receiveFederationMessage
+      responses: { '200': { description: Envelope authenticated, decrypted, and accepted } }
+components:
+  securitySchemes:
+    bearerAdmin: { type: http, scheme: bearer }
+  responses:
+    Error:
+      description: Bounded error
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error, message]
+            properties: { error: { type: string }, message: { type: string } }
+  schemas:
+    ResourceKind:
+      type: string
+      enum: [extensions, users, devices, trunks, inbound-routes, outbound-routes, ivrs, queues, conferences, voicemail-boxes, recording-policies, calendars, presence-states, parking-lots, paging-groups, announcements, time-conditions, call-files, dynamic-features, webrtc-clients]
+    ResourceMutation:
+      type: object
+      required: [displayName, configuration]
+      properties:
+        displayName: { type: string, minLength: 1, maxLength: 256 }
+        enabled: { type: boolean, default: true }
+        expectedRevision: { type: integer, minimum: 0 }
+        configuration: { type: object, additionalProperties: true }
+    ManagedResource:
+      allOf:
+        - $ref: '#/components/schemas/ResourceMutation'
+        - type: object
+          required: [id, kind, revision, createdAt, updatedAt]
+          properties:
+            id: { type: string }
+            kind: { $ref: '#/components/schemas/ResourceKind' }
+            revision: { type: integer, minimum: 0 }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    FederationScope:
+      type: object
+      required: [capabilities, dialPrefixes, inboundContexts, maxConcurrentCalls, maxHopCount]
+      properties:
+        capabilities: { type: array, maxItems: 16, items: { enum: [route-calls, share-presence, share-directory, share-health, send-messages, receive-events] } }
+        dialPrefixes: { type: array, maxItems: 64, items: { type: string, pattern: '^\\+?[0-9*#]{1,24}$' } }
+        inboundContexts: { type: array, maxItems: 32, items: { type: string, pattern: '^[A-Za-z0-9_-]{1,80}$' } }
+        maxConcurrentCalls: { type: integer, minimum: 0, maximum: 1000 }
+        maxHopCount: { type: integer, minimum: 1, maximum: 8 }

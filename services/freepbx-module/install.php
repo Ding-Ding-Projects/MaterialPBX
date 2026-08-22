@@ -1,0 +1,17 @@
+<?php
+defined('FREEPBX_IS_AUTH') or die('No direct script access allowed');
+
+$sql = <<<'SQL'
+CREATE TABLE IF NOT EXISTS materialpbx_resources (
+  resource_kind VARCHAR(64) NOT NULL,
+  resource_id VARCHAR(128) NOT NULL,
+  revision BIGINT UNSIGNED NOT NULL,
+  enabled TINYINT(1) NOT NULL,
+  display_name VARCHAR(256) NOT NULL,
+  configuration LONGTEXT NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  PRIMARY KEY (resource_kind, resource_id),
+  CONSTRAINT materialpbx_configuration_json CHECK (JSON_VALID(configuration))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+SQL;
+$db->exec($sql);
