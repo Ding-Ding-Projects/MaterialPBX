@@ -24,6 +24,7 @@
 
 ## Verification and release
 
+- [ ] Build, publish, download, install, and verify the unsigned Squirrel.Windows 0.1.2 repair release.
 - [x] Run the focused local site, installer, runtime/deployment, release-evidence, service-contract, PHP snapshot, shell-analysis, dependency-audit, build, and packaging checks after upgrading to the full verification workflow.
 - [ ] Capture every real built surface through the approved headless route.
 - [ ] Re-run public-site browser, responsive, keyboard, contrast, and visual checks when the required cheap headless route is available.

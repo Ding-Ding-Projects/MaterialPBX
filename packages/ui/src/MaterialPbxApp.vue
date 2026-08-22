@@ -330,8 +330,8 @@ watch(regexDialogOpen, (open, previous) => {
 })
 const filteredPages = computed(() => pages.filter((item) => navCompiled.value.matcher(`${item.label} ${item.description} ${item.group}`)))
 const productFeaturePages = computed(() => pages.filter((item) => ['People & phones', 'Calling', 'Call flows', 'Reports', 'Advanced', 'System'].includes(item.group) && item.id !== 'status'))
-const candidateVersion = '0.1.1'
-const latestPublishedVersion = '0.1.0'
+const candidateVersion = '0.1.2'
+const latestPublishedVersion = '0.1.1'
 const latestPublishedTag = 'build-121-3f31f81'
 const installerDownloadUrl = `https://github.com/Ding-Ding-Projects/MaterialPBX/releases/download/${latestPublishedTag}/MaterialPBX-${latestPublishedVersion}-x64-Setup.exe`
 const siteIcons = {

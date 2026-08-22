@@ -51,7 +51,7 @@
 
 - The WorldLens design package is consumed from the immutable `worldlens-design-system-0.1.0.tgz` release asset. Published SHA-256: `cd7ccd70a1b73a3bf65914c3901d9c8d45d4b1dacd2956eb70a0db4524cb96eb`; source commit: `e6638a7e608e221c6bdd77f638d014368ae3d04f`.
 - The runtime lane owns the control service, deployment artifacts, protocol implementation, and production telephony behavior. This UI sends only the documented control-service requests and never treats an unconfirmed response as success.
-- The documentation site uses GitHub's stable latest-release asset route for the 0.1.1 candidate and labels it unavailable until the latest verified non-draft release actually contains that asset. It does not hardcode a release tag or source commit that can become stale.
+- The documentation site uses GitHub's stable latest-release asset route for the 0.1.2 candidate and labels it unavailable until the latest verified non-draft release actually contains that asset. It does not hardcode a release tag or source commit that can become stale.
 - GitHub Pages is live at <https://ding-ding-projects.github.io/MaterialPBX/>.
 - A managed Sites project is bound in `site/.openai/hosting.json` and is public at <https://materialpbx.yeredow264.chatgpt.site/>. Its first exact-source deployment succeeded from commit `27d5ff4bff8de086c04e68c4ddeec3b0f277cbc7`; an unauthenticated read returned `200` and loaded the expected root-based 734,551-byte JavaScript asset.
 - Commit `41d75a5f2eb7cc7ac1426ee12fb0c4a668ed10f9` restricted release and Pages push triggers to `main` after release-created tags recursively triggered duplicate releases. Historical duplicates remain immutable; no tags or releases were deleted.

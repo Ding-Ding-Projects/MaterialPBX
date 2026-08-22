@@ -25,7 +25,7 @@ const required = [
   ['interactive call route studio', 'app', 'id="site-route-preview-title">Call route simulation'],
   ['typed call route conditions', 'app', "type SiteDemoMode = 'open' | 'closed' | 'overflow'"],
   ['production deployment path', 'app', 'Read self-hosting architecture'],
-  ['single candidate version', 'app', "const candidateVersion = '0.1.1'"],
+  ['single candidate version', 'app', "const candidateVersion = '0.1.2'"],
   ['derived published installer path', 'app', 'MaterialPBX-${latestPublishedVersion}-x64-Setup.exe`'],
   ['derived visible candidate badge', 'app', 'CANDIDATE {{ candidateVersion }} · NOT YET PUBLISHED'],
   ['wide public header utilities', 'app', `:prepend-icon="siteIcons.bell" @click="openPage('notifications')">Notifications</v-btn>`],

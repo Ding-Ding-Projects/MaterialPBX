@@ -4,6 +4,8 @@
 
 ### Changed
 
+- Advanced the Windows installer candidate to 0.1.2 after the release pipeline correctly refused to recycle the already-published 0.1.1 installed version for the container-build repair.
+
 - Fixed the control-plane and privileged-helper container builds to include the build scripts invoked by their package manifests. Clean image builds previously stopped before TypeScript compilation because the Docker build context omitted those files.
 
 - Added a reproducible release line counter with exact-commit categories, total and nonblank arithmetic, generated and excluded rows, and surviving-line attribution for Claude Fable 5/agent-authored versus people-authored lines. Tracked interface captures are generated evidence rather than project source. The release workflow now builds through the supported installer verifier, requires a strictly newer installed version, builds and archives the complete native-host payload, uses an anonymously verified exact-commit installer icon, links digest-verified bilingual dim-sum provenance without attaching a copied photograph, rejects existing tag refs, proves the peeled tag commit, downloads and hashes every published asset, settles final timing after publication verification, and uploads safe terminal diagnostics after the publication attempt without adding test, lint, or other quality jobs to GitHub Actions.
