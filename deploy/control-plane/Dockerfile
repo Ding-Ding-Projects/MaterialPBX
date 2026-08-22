@@ -10,6 +10,7 @@ WORKDIR /src/services/control-plane
 COPY services/control-plane/package*.json ./
 RUN npm ci --ignore-scripts --install-links
 COPY services/control-plane/tsconfig.json ./
+COPY services/control-plane/scripts ./scripts
 COPY services/control-plane/src ./src
 RUN npm run build && npm prune --omit=dev
 

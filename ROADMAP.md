@@ -46,6 +46,7 @@
 - [x] Move first-boot credentials, generated database state, and the helper socket outside systemd's `/run` tmpfs; add resumable markers, bounded readiness, helper-runtime ordering, and an executable negative-regression contract.
 - [x] Add the guarded native Debian 12 amd64 production bootstrap, immutable service generations, hardened systemd services, authenticated readiness evidence, payload manifests, and transactional rollback.
 - [x] Build and digest-verify the complete offline native control-plane and privileged-helper payload archives.
+- [x] Repair and cold-build the PBX, control-plane, and privileged-helper container images with every package-invoked build script present in its Docker context.
 - [ ] Build and boot a fresh clean PBX container with the PATH-visible `fwconsole` link and corrected volume declarations.
 - [ ] Prove generated custom includes, a complete FreePBX reload, ring-group dialplan, disablement, deletion, and a real runtime call.
 - [ ] Verify cross-resource destination dispatch for all compiled feature subsets on a live FreePBX/Asterisk runtime.

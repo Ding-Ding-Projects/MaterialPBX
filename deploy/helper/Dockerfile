@@ -10,6 +10,7 @@ WORKDIR /src/services/privileged-helper
 COPY services/privileged-helper/package*.json ./
 RUN npm ci --ignore-scripts --install-links
 COPY services/privileged-helper/tsconfig.json ./
+COPY services/privileged-helper/scripts ./scripts
 COPY services/privileged-helper/src ./src
 RUN npm run build && npm prune --omit=dev
 
