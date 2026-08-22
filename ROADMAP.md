@@ -14,6 +14,8 @@
 - [x] Add the Windows desktop lab shell and unsigned Squirrel packaging route.
 - [x] Add the landing and documentation site with an explicit non-runtime boundary.
 - [x] Give the public site a dedicated beginner-first landing composition with a visual call path, rich-control demonstration, complete feature map, verified download, and production deployment route.
+- [x] Finish the public walkthrough with an exportable local planning checklist and installed-or-hosted continuation instead of a disconnected runtime dead end.
+- [x] Make the landing controls reactive, derive the Asterisk feature map from the page registry, use SVG icon paths, and preserve the call-flow topology on narrow layouts.
 - [x] Add a managed Sites/Cloudflare Worker build beside the GitHub Pages build.
 - [ ] Publish and verify the managed production deployment from the exact pushed source version.
 - [x] Add a real control-service preflight, health/capability states, permission-aware resource loading, and confirmed-save path.

@@ -5,6 +5,8 @@
 ### Changed
 
 - Rebuilt the public home page as a dedicated beginner-first landing experience instead of a disconnected control dashboard. It now defines a PBX, shows a visual call path, separates beginner, expert, and production routes, demonstrates rich controls, exposes the complete feature map, and keeps the public non-runtime boundary visible.
+- Made the public walkthrough end in a local Markdown planning checklist instead of a disabled runtime action, connected its call-path choices to the exported plan, and added a direct continuation to the production deployment guide.
+- Made the landing-page selector, ring-time slider, and encryption switch update one live preview; derived the Asterisk feature map from the actual page registry; added the ring-groups destination; switched the landing icons to the configured SVG icon set; and corrected the narrow call-flow connector.
 - Added a managed Sites/Cloudflare Worker publication build while retaining GitHub Pages under the repository base path. The Pages workflow now publishes the client output rather than the complete worker bundle.
 - Replaced disabled runtime-looking actions and health metrics on public feature pages with documentation, download, and installed-or-hosted product guidance.
 - Added a transactional native compiler registry for the safely bounded ring-group subset. It previews module-owned output, snapshots prior artifacts, applies and removes them through the FreePBX generation hook, provides rollback identity, and reports stored desired state, compiled state, reload state, and pending runtime verification separately.
@@ -24,7 +26,7 @@
 
 ### Verification
 
-The site contract check verified 13 exact requirements plus the managed-hosting identifier boundary. The GitHub Pages build produced a `/MaterialPBX/` client, and the managed build produced a root-based client plus a Cloudflare-compatible worker entry. Visual, responsive, keyboard, and contrast verification did not run because the required cheap headless route was unavailable and no substitute route was used. Vite still reports the existing initial-bundle size advisory.
+The site contract check verified 32 exact requirements, the managed-hosting identifier boundary, and 32 independent red-then-green negative regressions. Each production build also parsed every local script and stylesheet URL and verified its exact hosting base: `/MaterialPBX/` for GitHub Pages and `/` for managed hosting. The GitHub Pages build produced a `/MaterialPBX/` client, and the managed build produced a root-based client plus a Cloudflare-compatible worker entry. Visual, responsive, keyboard, and contrast verification did not run because the required cheap headless route was unavailable and no substitute route was used. Vite still reports the existing initial-bundle size advisory; the managed JavaScript bundle was 734.55 kB before gzip in this build.
 
 Desktop builds completed, and PHP 8.4 syntax checks passed on both previously touched FreePBX module files. During the runtime continuation, MaterialPBX module 0.1.0 installed and enabled on FreePBX 17, all three module tables were created, a ring-group artifact and snapshots compiled, and rollback restored the prior-null compiled state. Full FreePBX reload was not proven because the interrupted older container lacked generated custom include files. A fresh clean PBX image build and boot remain pending.
 

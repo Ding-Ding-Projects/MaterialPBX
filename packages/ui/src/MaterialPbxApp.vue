@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { createDisconnectedClient, createHttpClient, MaterialPbxRequestError, type CapabilitySnapshot, type ConnectionState, type HealthSnapshot, type MaterialPbxClient, type PbxResource, type PbxResourceKind } from '@materialpbx/client'
+import { mdiAccountGroupOutline, mdiBookOpenPageVariantOutline, mdiChevronRight, mdiDownloadOutline, mdiGithub, mdiInformationOutline, mdiMessageProcessingOutline, mdiMicrosoftWindows, mdiPhoneIncomingOutline, mdiRocketLaunchOutline, mdiServerNetwork, mdiShapeOutline, mdiSproutOutline, mdiTuneVariant, mdiVoicemail } from '@mdi/js'
 import { contrastRatio, RAINBOW_SENTINEL, translateColor } from './color'
 import { compileSearch } from './regex'
 
@@ -67,6 +68,7 @@ const pages: Array<{ id: PageId; label: string; icon: string; group: string; des
   { id: 'outbound-routes', label: 'Outgoing calls', icon: 'call_made', group: 'Calling', description: 'Choose which phone company carries each kind of number.' },
   { id: 'ivrs', label: 'Phone menus', icon: 'account_tree', group: 'Call flows', description: 'Let callers press keys to choose where they go.' },
   { id: 'queues', label: 'Waiting lines', icon: 'queue', group: 'Call flows', description: 'Hold callers and offer them to available team members.' },
+  { id: 'ring-groups', label: 'Ring groups', icon: 'ring_volume', group: 'Call flows', description: 'Ring several phones together, then use a clear no-answer destination.' },
   { id: 'conferences', label: 'Conference rooms', icon: 'groups_3', group: 'Call flows', description: 'Shared numbers where several people can talk together.' },
   { id: 'voicemail', label: 'Voicemail', icon: 'voicemail', group: 'Call flows', description: 'Record messages when nobody can answer.' },
   { id: 'recordings', label: 'Recordings', icon: 'graphic_eq', group: 'Call flows', description: 'Greetings, announcements, music, and call recordings.' },
@@ -108,6 +110,26 @@ const regexDraft = reactive({ query: '', regex: false, flags: 'i' })
 const regexDraftResult = computed(() => compileSearch(regexDraft))
 function openRegexBuilder(context: string) { regexContext.value = context; regexDialogOpen.value = true }
 const filteredPages = computed(() => pages.filter((item) => navCompiled.value.matcher(`${item.label} ${item.description} ${item.group}`)))
+const productFeaturePages = computed(() => pages.filter((item) => ['People & phones', 'Calling', 'Call flows', 'Reports', 'Advanced', 'System'].includes(item.group) && item.id !== 'status'))
+const siteIcons = {
+  accountGroup: mdiAccountGroupOutline,
+  book: mdiBookOpenPageVariantOutline,
+  chevron: mdiChevronRight,
+  download: mdiDownloadOutline,
+  feature: mdiShapeOutline,
+  github: mdiGithub,
+  information: mdiInformationOutline,
+  message: mdiMessageProcessingOutline,
+  phoneIncoming: mdiPhoneIncomingOutline,
+  rocket: mdiRocketLaunchOutline,
+  server: mdiServerNetwork,
+  sprout: mdiSproutOutline,
+  tune: mdiTuneVariant,
+  voicemail: mdiVoicemail,
+  windows: mdiMicrosoftWindows,
+} as const
+const sitePreview = reactive({ destination: 'Ring a group of phones', ringSeconds: 20, encryptVoice: true })
+const sitePreviewSummary = computed(() => `${sitePreview.destination} for ${sitePreview.ringSeconds} seconds, then continue to the configured no-answer destination. Voice encryption is ${sitePreview.encryptVoice ? 'requested when supported' : 'not requested'}.`)
 
 function openPage(id: PageId) {
   activePage.value = id
@@ -133,7 +155,7 @@ const resourceAccess = ref<Partial<Record<PbxResourceKind, 'unknown' | 'read' | 
 const resourceLoading = ref(false)
 const expertMode = ref(false)
 
-const resourcePageIds = new Set<PbxResourceKind>(['extensions','users','devices','trunks','inbound-routes','outbound-routes','ivrs','queues','conferences','voicemail','recordings','cdr','cel','calendars','presence','parking','paging','announcements','time-conditions','webrtc','paired-servers','backups','observability','security'])
+const resourcePageIds = new Set<PbxResourceKind>(['extensions','users','devices','trunks','inbound-routes','outbound-routes','ivrs','queues','ring-groups','conferences','voicemail','recordings','cdr','cel','calendars','presence','parking','paging','announcements','time-conditions','webrtc','paired-servers','backups','observability','security'])
 const isResourcePage = (value: PageId): value is PbxResourceKind => resourcePageIds.has(value as PbxResourceKind)
 const currentAccess = computed(() => isResourcePage(activePage.value) ? resourceAccess.value[activePage.value] ?? 'unknown' : 'unknown')
 const canWriteCurrent = computed(() => currentAccess.value === 'write')
@@ -173,6 +195,7 @@ const onboarding = reactive({
   country: 'CA', emergencyNumber: '911', emergencyConfirmed: false, extensionStart: 100,
   extensionDigits: 3, deviceType: 'softphone', provider: 'I will connect a phone company later',
   publicNumber: '', nat: 'automatic', firewall: 'recommended', tls: true, srtp: true,
+  inboundDestination: 'First extension', outboundProfile: 'Internal only until verified',
   backupSchedule: 'Every night', testDestination: '',
 })
 
@@ -223,6 +246,14 @@ const resourceForms: Record<string, Array<{ key: string; label: string; type: st
     { key: 'timeoutSeconds', label: 'Queue timeout seconds', type: 'number', help: 'How long callers may remain in the queue before the safe fallback.' },
     { key: 'maxWait', label: 'Maximum wait', type: 'select', options: ['5 minutes','10 minutes','20 minutes','No fixed limit'], help: 'After this, send the caller to the fallback destination.' },
   ],
+  'ring-groups': [
+    { key: 'number', label: 'Ring-group number', type: 'number', help: 'A short internal number that reaches every selected member.' },
+    { key: 'strategy', label: 'How phones ring', type: 'select', options: ['ringall', 'hunt', 'memoryhunt', 'firstavailable'], help: 'Ring all is the simplest safe start. The other strategies change member order.' },
+    { key: 'memberExtensionIds', label: 'Phones and extensions', type: 'members', help: 'Choose one to 64 existing extension or endpoint identifiers.' },
+    { key: 'ringSeconds', label: 'Ring time', type: 'slider', help: 'How long this group rings before the no-answer destination.' },
+    { key: 'failoverDestination', label: 'No-answer destination', type: 'select', options: ['Voicemail', 'Queue', 'Announcement', 'Hang up'], help: 'The next safe step when nobody in the group answers.' },
+    { key: 'enabled', label: 'Accept calls', type: 'switch', help: 'Turn the group off without deleting its plan.' },
+  ],
   voicemail: [
     { key: 'mailbox', label: 'Mailbox number', type: 'number', help: 'A validated 2 to 12 digit numeric mailbox.' },
     { key: 'email', label: 'Notification email', type: 'text', help: 'Optional. Used only when the server has a verified mail route.' },
@@ -248,7 +279,7 @@ const resourceForms: Record<string, Array<{ key: string; label: string; type: st
   ],
 }
 
-const visualFeatureKinds = new Set<PbxResourceKind>(['extensions','trunks','inbound-routes','outbound-routes','ivrs','queues','observability','paired-servers'])
+const visualFeatureKinds = new Set<PbxResourceKind>(['extensions','trunks','inbound-routes','outbound-routes','ivrs','queues','ring-groups','observability','paired-servers'])
 const visualFeature = computed(() => isResourcePage(activePage.value) && visualFeatureKinds.has(activePage.value) ? ({
   extensions: { eyebrow: 'PEOPLE AND PHONES', lead: 'Give each person a short number and decide which real devices ring.', default: 'Suggested start: three-digit extensions beginning at 100, voicemail on, 25-second ring time.', icon: '☎' },
   trunks: { eyebrow: 'PHONE COMPANY LINKS', lead: 'Configure a bounded PJSIP connection and see which outside links are healthy, encrypted, and within their call limits.', default: 'Suggested start: PJSIP with TLS when supported, the provider’s documented host and port, then add credentials only through its reviewed flow.', icon: '⇄' },
@@ -256,6 +287,7 @@ const visualFeature = computed(() => isResourcePage(activePage.value) && visualF
   'outbound-routes': { eyebrow: 'OUTGOING CALL MAP', lead: 'Choose which healthy phone-company connection carries each kind of number.', default: 'Suggested start: separate emergency, local, and international rules so permissions stay reviewable.', icon: '↗' },
   ivrs: { eyebrow: 'VISUAL CALL-FLOW CANVAS', lead: 'Build the caller journey from greeting to key choices and safe fallbacks.', default: 'Suggested start: operator on 0, repeat once after an invalid key, then use a clear fallback.', icon: '⑴' },
   queues: { eyebrow: 'WAITING-LINE CONTROL', lead: 'Balance caller wait time, available people, and a humane fallback.', default: 'Suggested start: longest-idle strategy, 20-second attempts, and a visible maximum wait.', icon: '≋' },
+  'ring-groups': { eyebrow: 'RING GROUP CONTROL', lead: 'Ring several existing phones together, then continue to one explicit no-answer destination.', default: 'Suggested start: ring all members for 20 seconds, then send the call to a verified voicemail box.', icon: '◎' },
   observability: { eyebrow: 'LIVE OPERATIONS', lead: 'Read PBX health, active calls, registrations, warnings, and the exact time they were checked.', default: 'This view is read-only unless the server explicitly grants an action capability.', icon: '◉' },
   'paired-servers': { eyebrow: 'SERVER PAIRING', lead: 'Connect another compatible PBX with the smallest useful permission set.', default: 'Suggested start: encrypted private-extension calling only; add failover or presence after verification.', icon: '⛓' },
 }[activePage.value] as { eyebrow: string; lead: string; default: string; icon: string }) : null)
@@ -273,9 +305,13 @@ const listMembers = ref<Array<{ id: string; label: string }>>([])
 const currentForm = computed(() => resourceForms[activePage.value] ?? genericForm)
 const membersKey = computed(() => currentForm.value.find((field) => field.type === 'members')?.key ?? '')
 const activeMembers = computed(() => membersKey.value === 'memberExtensionIds' ? queueMembers.value : listMembers.value)
-const membersEditorLabel = computed(() => ({ memberExtensionIds: 'Queue members', dialPatterns: 'Dial patterns', trunkIds: 'Trunk order', entries: 'IVR key choices', windows: 'Open windows' }[membersKey.value as 'memberExtensionIds' | 'dialPatterns' | 'trunkIds' | 'entries' | 'windows'] ?? 'Items'))
+const membersEditorLabel = computed(() => membersKey.value === 'memberExtensionIds'
+  ? activePage.value === 'ring-groups' ? 'Ring-group members' : 'Queue members'
+  : ({ dialPatterns: 'Dial patterns', trunkIds: 'Trunk order', entries: 'IVR key choices', windows: 'Open windows' }[membersKey.value as 'dialPatterns' | 'trunkIds' | 'entries' | 'windows'] ?? 'Items'))
 const membersFieldLabel = computed(() => ({ memberExtensionIds: 'Member extension or endpoint', dialPatterns: 'Asterisk dial pattern', trunkIds: 'Trunk identifier', entries: 'Key choice JSON, such as {"digit":"1","destination":{"type":"extension","id":"101"}}', windows: 'Window JSON, such as {"weekdays":[1],"start":"09:00","end":"17:00"}' }[membersKey.value as 'memberExtensionIds' | 'dialPatterns' | 'trunkIds' | 'entries' | 'windows'] ?? 'Identifier'))
-const membersEmptyMessage = computed(() => membersKey.value === 'memberExtensionIds' ? 'No members yet. A queue needs at least one destination.' : `No ${membersEditorLabel.value.toLowerCase()} yet. This feature needs at least one item.`)
+const membersEmptyMessage = computed(() => membersKey.value === 'memberExtensionIds'
+  ? activePage.value === 'ring-groups' ? 'No members yet. A ring group needs at least one phone or extension.' : 'No members yet. A queue needs at least one destination.'
+  : `No ${membersEditorLabel.value.toLowerCase()} yet. This feature needs at least one item.`)
 function openResourceEditor(resource?: PbxResource) {
   editingResourceId.value = resource?.id ?? null
   Object.keys(editorValues).forEach((key) => delete editorValues[key])
@@ -455,6 +491,34 @@ function exportView(format: string) {
   const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `materialpbx-${activePage.value}.${exportExtensions[format] ?? 'txt'}`; link.click(); URL.revokeObjectURL(link.href)
   notify('Export created', `${format} export downloaded. Credentials and personal vocabulary were omitted.`, 'success')
 }
+function exportOnboardingPlan() {
+  const rows = [
+    ['Purpose', 'Local planning checklist; this file does not configure a PBX.'],
+    ['Phone system name', onboarding.serverName],
+    ['Timezone', onboarding.timezone],
+    ['Country or region', onboarding.country],
+    ['First extension', String(onboarding.extensionStart)],
+    ['Extension digits', String(onboarding.extensionDigits)],
+    ['First phone type', onboarding.deviceType],
+    ['Provider plan', onboarding.provider],
+    ['Public phone number', onboarding.publicNumber || 'Not chosen'],
+    ['Incoming calls ring', onboarding.inboundDestination],
+    ['Outgoing call profile', onboarding.outboundProfile],
+    ['Emergency number', onboarding.emergencyNumber],
+    ['Emergency policy reviewed', onboarding.emergencyConfirmed ? 'Yes' : 'No'],
+    ['NAT handling', onboarding.nat],
+    ['Firewall profile', onboarding.firewall],
+    ['TLS requested', onboarding.tls ? 'Yes' : 'No'],
+    ['SRTP requested', onboarding.srtp ? 'Yes' : 'No'],
+    ['Backup schedule', onboarding.backupSchedule],
+    ['Normal test-call number', onboarding.testDestination || 'Not chosen'],
+  ]
+  const markdown = `# MaterialPBX planning checklist\n\n${rows.map(([label, value]) => `- **${label}:** ${value}`).join('\n')}\n`
+  const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' })
+  const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'materialpbx-planning-checklist.md'; link.click(); URL.revokeObjectURL(link.href)
+  recordHistory('Downloaded onboarding planning checklist')
+  notify('Planning checklist downloaded', 'This local Markdown file is a plan only. Continue in the installed or hosted product to validate and apply it.', 'success')
+}
 
 const supportsDesktopVault = computed(() => props.surface === 'desktop')
 const desktopWindow = () => (window as unknown as { materialPbxDesktop?: { window?: { minimize(): unknown; maximize(): unknown; close(): unknown } } }).materialPbxDesktop?.window
@@ -538,19 +602,19 @@ onBeforeUnmount(() => {
                 <h1 id="site-hero-title">Calling for everyone, without the wall of forms</h1>
                 <p class="site-hero-lead">MaterialPBX turns FreePBX and Asterisk into guided, visual workflows. It explains every term, recommends a safe starting point, and still keeps the expert controls when you need them.</p>
                 <div class="site-hero-actions">
-                  <v-btn color="primary" size="x-large" prepend-icon="mdi-rocket-launch-outline" @click="openPage('onboarding')">Try the guided walkthrough</v-btn>
-                  <v-btn variant="tonal" size="x-large" prepend-icon="mdi-book-open-page-variant-outline" @click="openPage('docs')">Explore every feature</v-btn>
+                  <v-btn color="primary" size="x-large" :prepend-icon="siteIcons.rocket" @click="openPage('onboarding')">Try the guided walkthrough</v-btn>
+                  <v-btn variant="tonal" size="x-large" :prepend-icon="siteIcons.book" @click="openPage('docs')">Explore every feature</v-btn>
                 </div>
-                <p class="site-boundary-note"><v-icon icon="mdi-information-outline" aria-hidden="true"/> This public website teaches, documents, and links to verified downloads. The installed or hosted product is what controls a real phone system.</p>
+                <p class="site-boundary-note"><v-icon :icon="siteIcons.information" aria-hidden="true"/> This public website teaches, documents, and links to verified downloads. The installed or hosted product is what controls a real phone system.</p>
               </div>
               <div class="site-call-map" aria-label="Example visual call path: public number, greeting, team, voicemail">
-                <div class="site-call-node emphasized"><v-icon icon="mdi-phone-incoming-outline"/><span><strong>Someone calls</strong><small>Your public number</small></span></div>
+                <div class="site-call-node emphasized"><v-icon :icon="siteIcons.phoneIncoming"/><span><strong>Someone calls</strong><small>Your public number</small></span></div>
                 <div class="site-call-connector" aria-hidden="true"></div>
-                <div class="site-call-node"><v-icon icon="mdi-message-processing-outline"/><span><strong>Friendly greeting</strong><small>Press 1 for the team</small></span></div>
+                <div class="site-call-node"><v-icon :icon="siteIcons.message"/><span><strong>Friendly greeting</strong><small>Press 1 for the team</small></span></div>
                 <div class="site-call-branches" aria-hidden="true"><span></span><span></span></div>
                 <div class="site-call-destinations">
-                  <div class="site-call-node"><v-icon icon="mdi-account-group-outline"/><span><strong>Ring the team</strong><small>Three phones together</small></span></div>
-                  <div class="site-call-node"><v-icon icon="mdi-voicemail"/><span><strong>Take a message</strong><small>When nobody answers</small></span></div>
+                  <div class="site-call-node"><v-icon :icon="siteIcons.accountGroup"/><span><strong>Ring the team</strong><small>Three phones together</small></span></div>
+                  <div class="site-call-node"><v-icon :icon="siteIcons.voicemail"/><span><strong>Take a message</strong><small>When nobody answers</small></span></div>
                 </div>
               </div>
             </section>
@@ -561,19 +625,19 @@ onBeforeUnmount(() => {
               <p>A PBX is simply the private phone system for a home or organization. It connects people, phones, public numbers, and the rules that decide where a call goes.</p>
               <div class="site-choice-grid">
                 <v-card class="site-choice-card pa-6" variant="flat">
-                  <v-avatar color="primary-container" size="56"><v-icon icon="mdi-sprout-outline"/></v-avatar>
+                  <v-avatar color="primary-container" size="56"><v-icon :icon="siteIcons.sprout"/></v-avatar>
                   <p class="eyebrow">I AM NEW</p><h3>Show me one safe step at a time</h3>
                   <p>Use plain-language questions, recommended choices, visual call paths, inline explanations, and a review before anything changes.</p>
                   <v-btn color="primary" variant="tonal" @click="openPage('onboarding')">Open the beginner walkthrough</v-btn>
                 </v-card>
                 <v-card class="site-choice-card pa-6" variant="flat">
-                  <v-avatar color="secondary-container" size="56"><v-icon icon="mdi-tune-variant"/></v-avatar>
+                  <v-avatar color="secondary-container" size="56"><v-icon :icon="siteIcons.tune"/></v-avatar>
                   <p class="eyebrow">I KNOW PHONE SYSTEMS</p><h3>Give me the full Asterisk toolbox</h3>
                   <p>Work with extensions, trunks, routes, queues, recordings, calendars, WebRTC, observability, security, paired servers, and advanced resource controls.</p>
                   <v-btn color="secondary" variant="tonal" @click="openPage('docs')">Browse the complete feature map</v-btn>
                 </v-card>
                 <v-card class="site-choice-card pa-6" variant="flat">
-                  <v-avatar color="tertiary-container" size="56"><v-icon icon="mdi-server-network"/></v-avatar>
+                  <v-avatar color="tertiary-container" size="56"><v-icon :icon="siteIcons.server"/></v-avatar>
                   <p class="eyebrow">I NEED THE REAL SERVICE</p><h3>Deploy the production stack</h3>
                   <p>Use the one-click Docker Compose path on a dedicated Linux host. The browser website never pretends to be the telephony runtime.</p>
                   <v-btn color="tertiary" variant="tonal" href="https://github.com/Ding-Ding-Projects/MaterialPBX/blob/main/docs/architecture/deployment.md" target="_blank" rel="noopener">Read the deployment guide</v-btn>
@@ -584,25 +648,25 @@ onBeforeUnmount(() => {
             <section class="site-proof-section" aria-labelledby="site-proof-title">
               <div><p class="eyebrow">A GUI THAT BEHAVES LIKE A GUI</p><h2 id="site-proof-title">Pick, slide, connect, preview</h2><p>Enumerated choices use real selectors. Ranges use sliders and steppers. Call destinations use visual cards and flows. Advanced values remain available without making raw configuration text the only route.</p></div>
               <div class="site-control-preview" aria-label="Interactive interface examples">
-                <v-select model-value="Ring a group of phones" label="Incoming calls ring" :items="['One person','Ring a group of phones','A phone menu','Voicemail']" hide-details/>
-                <v-slider :model-value="20" min="5" max="120" step="5" label="Ring for 20 seconds" thumb-label hide-details/>
-                <div class="site-switch-row"><span>Encrypt voice when supported</span><v-switch :model-value="true" color="primary" hide-details aria-label="Encrypt voice when supported"/></div>
-                <v-alert type="success" variant="tonal" density="compact">Preview: the team rings for 20 seconds, then voicemail answers.</v-alert>
+                <v-select v-model="sitePreview.destination" label="Incoming calls ring" :items="['One person','Ring a group of phones','A phone menu','Voicemail']" hide-details/>
+                <v-slider v-model="sitePreview.ringSeconds" min="5" max="120" step="5" :label="`Ring for ${sitePreview.ringSeconds} seconds`" thumb-label hide-details/>
+                <div class="site-switch-row"><span>Encrypt voice when supported</span><v-switch v-model="sitePreview.encryptVoice" color="primary" hide-details aria-label="Encrypt voice when supported"/></div>
+                <v-alert type="success" variant="tonal" density="compact">Preview: {{ sitePreviewSummary }}</v-alert>
               </div>
             </section>
 
             <section class="site-feature-section" aria-labelledby="site-feature-title">
-              <div class="site-section-heading"><div><p class="eyebrow">THE WHOLE FEATURE MAP</p><h2 id="site-feature-title">Asterisk depth, organized into understandable destinations</h2></div><v-btn variant="text" append-icon="mdi-arrow-right" @click="openPage('docs')">Open searchable documentation</v-btn></div>
+              <div class="site-section-heading"><div><p class="eyebrow">THE WHOLE FEATURE MAP</p><h2 id="site-feature-title">Asterisk depth, organized into understandable destinations</h2></div><v-btn variant="text" :append-icon="siteIcons.chevron" @click="openPage('docs')">Open searchable documentation</v-btn></div>
               <div class="site-feature-grid">
-                <button v-for="item in pages.filter(item => ['extensions','devices','trunks','inbound-routes','outbound-routes','ivrs','queues','ring-groups','voicemail','time-conditions','paired-servers','observability'].includes(item.id))" :key="item.id" class="site-feature-card" @click="openPage(item.id)">
-                  <v-icon :icon="`mdi-${item.icon}`" aria-hidden="true"/><span><strong>{{ item.label }}</strong><small>{{ item.description }}</small></span><v-icon icon="mdi-chevron-right" aria-hidden="true"/>
+                <button v-for="item in productFeaturePages" :key="item.id" class="site-feature-card" @click="openPage(item.id)">
+                  <v-icon :icon="siteIcons.feature" aria-hidden="true"/><span><strong>{{ item.label }}</strong><small>{{ item.description }}</small></span><v-icon :icon="siteIcons.chevron" aria-hidden="true"/>
                 </button>
               </div>
             </section>
 
             <section class="site-download-section" aria-labelledby="site-download-title">
               <div><p class="eyebrow">READY WHEN YOU ARE</p><h2 id="site-download-title">Learn here. Run it where calls belong.</h2><p>Download the latest verified non-draft Windows installer for the desktop lab, or deploy the production phone service on a dedicated Linux host. The Windows installer is intentionally unsigned, so Windows may show an unknown-publisher or SmartScreen warning.</p></div>
-              <div class="site-download-actions"><v-btn color="primary" size="large" prepend-icon="mdi-microsoft-windows" href="https://github.com/Ding-Ding-Projects/MaterialPBX/releases/latest/download/MaterialPBX-0.1.0-x64-Setup.exe" target="_blank" rel="noopener">Download MaterialPBX 0.1.0</v-btn><v-btn variant="outlined" size="large" prepend-icon="mdi-github" href="https://github.com/Ding-Ding-Projects/MaterialPBX" target="_blank" rel="noopener">View the public repository</v-btn></div>
+              <div class="site-download-actions"><v-btn color="primary" size="large" :prepend-icon="siteIcons.windows" href="https://github.com/Ding-Ding-Projects/MaterialPBX/releases/latest/download/MaterialPBX-0.1.0-x64-Setup.exe" target="_blank" rel="noopener">Download MaterialPBX 0.1.0</v-btn><v-btn variant="outlined" size="large" :prepend-icon="siteIcons.github" href="https://github.com/Ding-Ding-Projects/MaterialPBX" target="_blank" rel="noopener">View the public repository</v-btn></div>
             </section>
           </template>
           <template v-else>
@@ -626,13 +690,13 @@ onBeforeUnmount(() => {
               <v-stepper-window-item :value="1"><v-card flat class="step-card"><h2>Name and location</h2><p>The name helps you recognize this server. The timezone decides opening hours, reports, and voicemail dates.</p><v-text-field v-model="onboarding.serverName" label="Phone system name"/><v-select v-model="onboarding.timezone" label="Timezone" :items="[Intl.DateTimeFormat().resolvedOptions().timeZone,'America/Vancouver','America/New_York','Europe/London','Asia/Hong_Kong']"/><v-select v-model="onboarding.country" label="Country or region" :items="[{title:'Canada',value:'CA'},{title:'United States',value:'US'},{title:'Hong Kong',value:'HK'},{title:'United Kingdom',value:'GB'}]"/></v-card></v-stepper-window-item>
               <v-stepper-window-item :value="2"><v-card flat class="step-card"><h2>People, extensions, and phones</h2><p>An extension is a short internal number such as 101. A device is the desk phone, computer app, or browser that rings for that extension.</p><v-slider v-model="onboarding.extensionDigits" :min="2" :max="6" step="1" label="Extension digits" thumb-label/><v-number-input v-model="onboarding.extensionStart" label="First extension number" :min="10" :max="999999"/><v-select v-model="onboarding.deviceType" label="First phone type" :items="[{title:'Softphone app (easiest to start)',value:'softphone'},{title:'Desk phone',value:'desk'},{title:'Browser calling',value:'browser'}]"/></v-card></v-stepper-window-item>
               <v-stepper-window-item :value="3"><v-card flat class="step-card"><h2>Connect a phone company</h2><p>A trunk is the connection to a phone company or another PBX. It carries calls to and from public phone numbers.</p><v-select v-model="onboarding.provider" label="Provider plan" :items="['I will connect a phone company later','Generic SIP provider','Pair another FreePBX-compatible server']"/><v-text-field v-model="onboarding.publicNumber" label="Public phone number" hint="Optional. Include country code, such as +14165550100." persistent-hint/></v-card></v-stepper-window-item>
-              <v-stepper-window-item :value="4"><v-card flat class="step-card"><h2>Choose where calls go</h2><p>An inbound route answers “what rings when someone calls this public number?” An outbound route chooses which trunk carries calls dialed by your phones. Emergency calls need a verified address and provider policy.</p><v-select label="Incoming calls ring" :items="['First extension','A group of phones','A phone menu','Voicemail']"/><v-select label="Outgoing call profile" :items="['Local and long distance','Internal only until verified','Custom expert rules']"/><v-text-field v-model="onboarding.emergencyNumber" label="Emergency number for this region"/><v-checkbox v-model="onboarding.emergencyConfirmed" label="I understand emergency calling must be verified with the phone company and tested using its approved procedure."/></v-card></v-stepper-window-item>
+              <v-stepper-window-item :value="4"><v-card flat class="step-card"><h2>Choose where calls go</h2><p>An inbound route answers “what rings when someone calls this public number?” An outbound route chooses which trunk carries calls dialed by your phones. Emergency calls need a verified address and provider policy.</p><v-select v-model="onboarding.inboundDestination" label="Incoming calls ring" :items="['First extension','A group of phones','A phone menu','Voicemail']"/><v-select v-model="onboarding.outboundProfile" label="Outgoing call profile" :items="['Local and long distance','Internal only until verified','Custom expert rules']"/><v-text-field v-model="onboarding.emergencyNumber" label="Emergency number for this region"/><v-checkbox v-model="onboarding.emergencyConfirmed" label="I understand emergency calling must be verified with the phone company and tested using its approved procedure."/></v-card></v-stepper-window-item>
               <v-stepper-window-item :value="5"><v-card flat class="step-card"><h2>Network and call encryption</h2><p>NAT lets many devices share one internet address. A firewall limits who can contact the PBX. TLS protects call setup; SRTP protects the voice stream.</p><v-select v-model="onboarding.nat" label="NAT handling" :items="[{title:'Detect automatically (recommended)',value:'automatic'},{title:'No NAT; PBX has a public address',value:'none'},{title:'Expert manual mapping',value:'manual'}]"/><v-select v-model="onboarding.firewall" label="Firewall profile" :items="[{title:'Recommended: trusted networks plus phone company',value:'recommended'},{title:'Local network only',value:'local'},{title:'Expert custom policy',value:'custom'}]"/><v-switch v-model="onboarding.tls" label="Use TLS when supported"/><v-switch v-model="onboarding.srtp" label="Use SRTP when supported"/></v-card></v-stepper-window-item>
-              <v-stepper-window-item :value="6"><v-card flat class="step-card"><h2>Back up, validate, then apply</h2><p>A backup makes recovery possible. The validation step checks registrations and routes before making a test call. Never test emergency calling without using your provider’s approved procedure.</p><v-select v-model="onboarding.backupSchedule" label="Automatic backup schedule" :items="['Every night','Every Sunday','Manual only']"/><v-text-field v-model="onboarding.testDestination" label="Normal test-call number" hint="Use a phone you control. Do not enter an emergency number." persistent-hint/><v-alert type="warning" variant="tonal">This wizard is a local draft while disconnected. “Apply” stays disabled until the server connection, provider credentials, emergency policy, firewall, and backup destination validate successfully.</v-alert></v-card></v-stepper-window-item>
+              <v-stepper-window-item :value="6"><v-card flat class="step-card"><h2>{{ props.surface === 'site' ? 'Review and take your plan with you' : 'Back up, validate, then apply' }}</h2><p>A backup makes recovery possible. Never test emergency calling without using your provider’s approved procedure.</p><v-select v-model="onboarding.backupSchedule" label="Automatic backup schedule" :items="['Every night','Every Sunday','Manual only']"/><v-text-field v-model="onboarding.testDestination" label="Normal test-call number" hint="Use a phone you control. Do not enter an emergency number." persistent-hint/><v-alert v-if="props.surface === 'site'" type="info" variant="tonal">This public walkthrough creates a local planning checklist only. It does not connect to, validate, or configure a phone system. Download the checklist, then continue in the installed or hosted product.</v-alert><v-alert v-else type="warning" variant="tonal">This wizard is a local draft while disconnected. “Apply” stays disabled until the server connection, provider credentials, emergency policy, firewall, and backup destination validate successfully.</v-alert></v-card></v-stepper-window-item>
             </v-stepper-window>
             <v-stepper-actions :disabled="onboardingStep === 1 ? 'prev' : onboardingStep === 6 ? 'next' : false" @click:prev="onboardingStep--" @click:next="onboardingStep++" />
           </v-stepper>
-          <div class="d-flex justify-end ga-3 mt-4"><v-btn variant="tonal" @click="recordHistory('Saved onboarding draft'); notify('Draft saved','The onboarding draft is stored locally.','success')">Save local draft</v-btn><v-btn color="primary" :disabled="!['connected','degraded'].includes(connection) || !onboarding.emergencyConfirmed || !onboarding.testDestination" @click="validateOnboardingTest">Validate normal test destination</v-btn></div>
+          <div v-if="props.surface === 'site'" class="d-flex flex-wrap justify-end ga-3 mt-4"><v-btn variant="tonal" @click="onboardingStep=6">Review plan</v-btn><v-btn color="primary" :disabled="!onboarding.emergencyConfirmed" @click="exportOnboardingPlan">Download planning checklist</v-btn><v-btn variant="outlined" href="https://github.com/Ding-Ding-Projects/MaterialPBX/blob/main/docs/architecture/deployment.md" target="_blank" rel="noopener">Continue to deployment guide</v-btn></div><div v-else class="d-flex justify-end ga-3 mt-4"><v-btn variant="tonal" @click="recordHistory('Saved onboarding draft'); notify('Draft saved','The onboarding draft is stored locally.','success')">Save local draft</v-btn><v-btn color="primary" :disabled="!['connected','degraded'].includes(connection) || !onboarding.emergencyConfirmed || !onboarding.testDestination" @click="validateOnboardingTest">Validate normal test destination</v-btn></div>
         </template>
 
         <template v-else-if="activePage === 'settings'">
@@ -681,7 +745,7 @@ onBeforeUnmount(() => {
           <section class="feature-hero">
             <div class="feature-symbol" aria-hidden="true">{{ visualFeature.icon }}</div>
             <div><p class="eyebrow">{{ visualFeature.eyebrow }}</p><h1>{{ page.label }}</h1><p class="feature-lead">{{ visualFeature.lead }}</p><p class="safe-default"><strong>Safe starting point:</strong> {{ visualFeature.default }}</p></div>
-            <div v-if="props.surface === 'site'" class="feature-actions"><v-btn variant="tonal" prepend-icon="mdi-book-open-page-variant-outline" @click="openPage('docs')">Browse all guides</v-btn><v-btn color="primary" prepend-icon="mdi-download-outline" href="https://github.com/Ding-Ding-Projects/MaterialPBX/releases/latest/download/MaterialPBX-0.1.0-x64-Setup.exe" target="_blank" rel="noopener">Get the real app</v-btn></div>
+            <div v-if="props.surface === 'site'" class="feature-actions"><v-btn variant="tonal" :prepend-icon="siteIcons.book" @click="openPage('docs')">Browse all guides</v-btn><v-btn color="primary" :prepend-icon="siteIcons.download" href="https://github.com/Ding-Ding-Projects/MaterialPBX/releases/latest/download/MaterialPBX-0.1.0-x64-Setup.exe" target="_blank" rel="noopener">Get the real app</v-btn></div>
             <div v-else class="feature-actions"><v-btn variant="tonal" :loading="resourceLoading" :disabled="!['connected','degraded'].includes(connection)" @click="loadResources(activePage as PbxResourceKind)">Refresh live data</v-btn><v-btn color="primary" :disabled="!canAttemptWriteCurrent" :title="!canAttemptWriteCurrent ? 'A prior write request was refused for this feature.' : 'Write permission is confirmed only after the server accepts a save.'" @click="openResourceEditor()">{{ activePage === 'observability' ? 'Configure view' : 'Create' }}</v-btn></div>
           </section>
           <div v-if="props.surface === 'site'" class="feature-metrics">

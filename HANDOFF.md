@@ -10,12 +10,14 @@
 - Local history, notification history, command palette, exports, appearance editing, and destructive-action confirmation surfaces.
 - Windows desktop shell with context isolation, sandboxing, external-link blocking, and an unsigned Squirrel.Windows packaging configuration.
 - Dedicated beginner-first landing/documentation home with a visual call path, beginner/expert/production choices, interactive control examples, a full feature map, Open Graph metadata, a verified MaterialPBX 0.1.0 installer link, and an explicit no-PBX-control boundary.
+- The public walkthrough exports a local Markdown planning checklist and links onward to the production deployment guide; it never presents disconnected validation as a working action.
+- Landing selectors, the ring-time slider, and voice-encryption switch share one reactive preview. The Asterisk feature map is derived from the page registry, includes ring groups, uses the configured SVG icon paths, and collapses its branch connector correctly on narrow layouts.
 - Dual publication adapters: GitHub Pages at the repository base path and managed Sites hosting with a Cloudflare-compatible worker entry.
 - Per-feature documentation under `docs/features/`.
 
 ## Build state
 
-- `pnpm check:site` verified 13 exact landing/publication requirements and the managed-hosting identifier boundary. `pnpm build:site` produced the GitHub Pages client with the repository base path, and `pnpm --filter @materialpbx/site build:sites` produced a root-based client plus `site/dist/server/index.js`. Vite reported its existing advisory that the initial CSS and JavaScript chunks exceed 500 kB; both builds completed successfully.
+- `pnpm check:site` verified 32 exact landing/publication requirements, the managed-hosting identifier boundary, and 32 independent deliberate red-then-green negative regressions. Each production build parsed every local script and stylesheet URL and verified the exact `/MaterialPBX/` or `/` base before returning success. The managed build emitted `site/dist/server/index.js`. Vite reported its existing advisory that the initial CSS and JavaScript chunks exceed 500 kB; the managed JavaScript bundle was 734.55 kB before gzip and both builds completed successfully.
 - Visual inspection remains unverified because the required cheap headless service refused its connection preflight and the direct CLI fallback was absent. No visible browser route was used.
 - Integrated main merge `bccd0d5335c6ef47b2a6999363a776b1f4facc85` was independently built for the web interface, documentation site, and desktop renderer, then packaged with `electron-builder` 26.15.3 and explicit signing disablement.
 - Generated unsigned Squirrel files: `MaterialPBX-0.1.0-x64-Setup.exe` (135,985,664 bytes, SHA-256 `80537386cdbd90f452d324f2c80fd0b33ab88855b83ee6cd1422a4b96596ab7f`), `materialpbx-desktop-0.1.0-full.nupkg` (134,892,401 bytes, SHA-256 `26eed931ac4dface36ddd27f75fc4bcdabbf3e393bc98966d9604a65fcfd5ec9`), and `RELEASES` (SHA-256 `c74aa79aaca493bc47ddbf6014e86bea451c81f2bbf946470677b9cfe7b32aa7`).
@@ -27,7 +29,7 @@
 - Live database evidence showed a ring-group artifact and its snapshots compiled successfully. Single-use rollback restored the prior-null state by removing the compiled artifact and marking the snapshot restored. This proves migration, transactional compilation, snapshot creation, and rollback behavior for that exercised subset.
 - Full FreePBX reload is not proven. The exercised container was an interrupted older bootstrap and lacked the generated custom include files required by the installed FreePBX configuration. A fresh clean image build and first boot are still pending after adding a PATH-visible `fwconsole` symlink and removing the invalid `/etc/freepbx.conf` file-path volume declaration.
 - Package builds completed for the protocol, privileged helper, and control plane. The continuation did not run tests, lint, type checking, security or accessibility checks, smoke checks, screenshots, a fresh container build, or a real call.
-- Release context: `build-112-2d9d7a6` is the latest verified release before publication for commit `44111eed9a6daccce70ca6a6eee570f3da8d7c4a` finishes. No newer release is claimed.
+- Release context: `build-118-fce1427` is the latest verified release before this landing repair is published. No release for the uncommitted repair is claimed.
 
 ## Hosted deployment preflight
 
@@ -44,7 +46,7 @@
 - The runtime lane owns the control service, deployment artifacts, protocol implementation, and production telephony behavior. This UI sends only the documented control-service requests and never treats an unconfirmed response as success.
 - The documentation site uses GitHub's stable latest-release asset route for the latest verified non-draft unsigned MaterialPBX 0.1.0 Windows installer. It does not hardcode a release tag or source commit that can become stale.
 - GitHub Pages is live at <https://ding-ding-projects.github.io/MaterialPBX/>.
-- A managed Sites project is bound in `site/.openai/hosting.json`; source publication, saved-version creation, deployment, and live-URL verification are still pending.
+- A managed Sites project is bound in `site/.openai/hosting.json`. Its source repository reached commit `7cbaa8f3e01965e76f1249478b45ebbf5dab6d24`; the current repair still needs an exact-commit source publication, saved version, deployment, and live-URL verification.
 - Commit `41d75a5f2eb7cc7ac1426ee12fb0c4a668ed10f9` restricted release and Pages push triggers to `main` after release-created tags recursively triggered duplicate releases. Historical duplicates remain immutable; no tags or releases were deleted.
 
 ## Next actions

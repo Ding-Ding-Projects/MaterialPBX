@@ -2,7 +2,7 @@ export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'deg
 
 export type PbxResourceKind =
   | 'extensions' | 'users' | 'devices' | 'trunks' | 'inbound-routes' | 'outbound-routes'
-  | 'ivrs' | 'queues' | 'conferences' | 'voicemail' | 'recordings' | 'cdr' | 'cel'
+  | 'ivrs' | 'queues' | 'ring-groups' | 'conferences' | 'voicemail' | 'recordings' | 'cdr' | 'cel'
   | 'calendars' | 'presence' | 'parking' | 'paging' | 'announcements' | 'time-conditions'
   | 'webrtc' | 'paired-servers' | 'backups' | 'observability' | 'security'
 
@@ -60,7 +60,7 @@ export class DisconnectedMaterialPbxClient implements MaterialPbxClient {
 }
 
 export class MaterialPbxRequestError extends Error { constructor(readonly state: ConnectionState, message: string) { super(message) } }
-const resourceKinds: PbxResourceKind[] = ['extensions','users','devices','trunks','inbound-routes','outbound-routes','ivrs','queues','conferences','voicemail','recordings','cdr','cel','calendars','presence','parking','paging','announcements','time-conditions','webrtc','paired-servers','backups','observability','security']
+const resourceKinds: PbxResourceKind[] = ['extensions','users','devices','trunks','inbound-routes','outbound-routes','ivrs','queues','ring-groups','conferences','voicemail','recordings','cdr','cel','calendars','presence','parking','paging','announcements','time-conditions','webrtc','paired-servers','backups','observability','security']
 const isObject = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 const strings = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 const kinds = (value: unknown) => strings(value).filter((item): item is PbxResourceKind => resourceKinds.includes(item as PbxResourceKind))

@@ -11,6 +11,8 @@
     "build:web": "pnpm --filter @materialpbx/web build",
     "build:site": "pnpm --filter @materialpbx/site build",
     "check:site": "node scripts/check-site-contract.mjs",
+    "check:site:pages": "node scripts/check-site-contract.mjs /MaterialPBX/",
+    "check:site:managed": "node scripts/check-site-contract.mjs /",
     "build:desktop": "pnpm --filter materialpbx-desktop build",
     "package:windows": "pnpm --filter materialpbx-desktop package:windows",
     "dev": "pnpm --filter @materialpbx/web dev"

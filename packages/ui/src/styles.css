@@ -120,6 +120,7 @@ h2 { font-size: clamp(1.45rem, 2vw, 2rem); }
   .v-navigation-drawer { max-width: min(88vw, 320px); }
   .site-hero { grid-template-columns: 1fr; min-height: 0; padding: 24px 18px; border-radius: 26px; }
   .site-call-map { padding: 16px; }
+  .site-call-branches { width: 3px; height: 24px; border: 0; background: rgb(var(--v-theme-primary)); }
   .site-call-destinations, .site-choice-grid, .site-proof-section, .site-feature-grid, .site-download-section { grid-template-columns: 1fr; }
   .site-choice-card { min-height: 0; }
   .site-section-heading { align-items: flex-start; flex-direction: column; }
