@@ -1,5 +1,5 @@
 <?php
-namespace FreePBXmodules;
+namespace FreePBX\modules;
 require_once __DIR__ . '/NativeCompilerRegistry.php';
 
 class Materialpbx extends \FreePBX_Helpers implements \BMO

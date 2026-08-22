@@ -10,9 +10,9 @@ class Materialpbx extends Command
 {
     protected $FreePBX;
 
-    public function __construct($FreePBX)
+    public function __construct()
     {
-        $this->FreePBX = $FreePBX;
+        $this->FreePBX = \FreePBX::create();
         parent::__construct();
     }
 

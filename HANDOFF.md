@@ -21,7 +21,10 @@
 - Native compiler milestone at `44111eed9a6daccce70ca6a6eee570f3da8d7c4a`: enabled ring groups with validated PJSIP members, bounded ring time, and terminate failover compile into module-owned output through the FreePBX generation hook. Preview, diff, UUID snapshot, transactional apply/removal, single-use rollback, reload state, and pending runtime verification are returned independently.
 - Disabled ring groups persist disabled desired state and transactionally snapshot and remove prior compiled output. Deletion likewise snapshots and removes compiled output. Unsupported edits state when prior output is retained and runtime may differ from desired state.
 - Every typed application feature subset now has a bounded native compiler. Extensions, inbound/outbound routes, IVRs, queues, voicemail, time conditions, ring groups, and credentialless PJSIP trunks compile into module-owned artifacts with explicit validation. Cross-resource destination dispatch remains unproven until live runtime verification.
-- Package builds completed for the protocol, privileged helper, and control plane. PHP syntax, FreePBX module loading, migrations, generated dialplan, reload, rollback, and runtime calls were not verified; the current build host has no PHP executable.
+- FreePBX 17 runtime integration now uses the platform's `FreePBX\modules` BMO namespace, the `FreePBX::Database()` migration handle, and zero-argument `fwconsole` command construction with `FreePBX::create()`. Module version 0.1.0 installed and enabled, and its `materialpbx_resources`, `materialpbx_compiled`, and `materialpbx_compiler_snapshots` tables were created.
+- Live database evidence showed a ring-group artifact and its snapshots compiled successfully. Single-use rollback restored the prior-null state by removing the compiled artifact and marking the snapshot restored. This proves migration, transactional compilation, snapshot creation, and rollback behavior for that exercised subset.
+- Full FreePBX reload is not proven. The exercised container was an interrupted older bootstrap and lacked the generated custom include files required by the installed FreePBX configuration. A fresh clean image build and first boot are still pending after adding a PATH-visible `fwconsole` symlink and removing the invalid `/etc/freepbx.conf` file-path volume declaration.
+- Package builds completed for the protocol, privileged helper, and control plane. The continuation did not run tests, lint, type checking, security or accessibility checks, smoke checks, screenshots, a fresh container build, or a real call.
 - Release context: `build-112-2d9d7a6` is the latest verified release before publication for commit `44111eed9a6daccce70ca6a6eee570f3da8d7c4a` finishes. No newer release is claimed.
 
 ## Hosted deployment preflight
@@ -48,5 +51,6 @@
 3. Run the full verification and capture workflow after leaving ultra-speed mode.
 4. Verify the next unsigned Windows Squirrel installer from its final integrated commit.
 5. Decide whether to adapt the bootstrap for a supported inventoried platform or provision a dedicated Debian 12 amd64 host, without disturbing existing workloads.
-6. Load the native compiler module on FreePBX 17 and prove migration, generation, reload, rollback, disablement, deletion, actual calls/dispatch for every compiled subset, and credentialless PJSIP trunk behavior.
-7. Implement the remaining native compilers only through documented FreePBX APIs or reviewed module-owned generation paths.
+6. Build and boot a fresh clean PBX container, then prove the generated custom includes load during a complete FreePBX reload.
+7. Prove generated dialplan, disablement, deletion, actual calls/dispatch for every compiled subset, and credentialless PJSIP trunk behavior.
+8. Implement the remaining native compilers only through documented FreePBX APIs or reviewed module-owned generation paths.

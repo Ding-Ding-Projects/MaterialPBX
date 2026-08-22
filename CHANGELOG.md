@@ -10,6 +10,8 @@
 - Added bounded `inbound-route-get-config-v1` and `outbound-route-get-config-v1` compilers. Inbound routes validate DID/Caller ID patterns and destination types. Outbound routes validate 1–128 patterns, 1–16 trunk identifiers, and require exactly one trunk for emergency routes. The route editors gained interactive pattern/trunk list controls.
 - Added bounded IVR, voicemail-box, and time-condition compilers, completing a bounded native compiler for every typed application feature subset. IVRs enforce 1–12 unique key choices and timeout bounds; voicemail validates mailbox/email/audio limits; time conditions validate IANA timezone and weekday windows. Cross-resource dispatch remains explicitly pending live runtime proof.
 - Kept extensions, trunks, inbound and outbound routes, IVRs, queues, voicemail, and time conditions explicitly unsupported for native compilation until documented FreePBX APIs or reviewed compilers exist. Disabled ring groups remove prior compiled output transactionally; unsupported edits disclose when retained output may differ from desired state.
+- Corrected FreePBX 17 runtime integration to use the `FreePBX\modules` BMO namespace, the `FreePBX::Database()` migration handle, and zero-argument `fwconsole` command construction backed by `FreePBX::create()`.
+- Made the pinned FreePBX installer find `/var/lib/asterisk/bin/fwconsole` through a PATH-visible `/usr/local/bin/fwconsole` symlink, and removed `/etc/freepbx.conf` from the image volume list so the runtime creates a file rather than a directory at that path.
 - Recorded deployment preflight constraints without changing a server: the bootstrap currently supports Debian 12 on amd64 only; the inventoried general host is ARM64, the x86_64 host runs Debian 13 and already uses ports 80 and 443 for the unrelated HeapAndyville proxy, and the other ARM64 host is busy.
 - Replaced the generic disconnected shell for extensions, trunks, incoming and outgoing routes, phone menus, queues, live operations, and paired servers with feature-specific visual control rooms and typed editors.
 - Added a real control-service preflight with persisted non-secret endpoint, health and capability reads, live/offline/permission/incompatibility/degraded states, permission-aware record loading, and confirmed save results.
@@ -19,7 +21,7 @@
 
 ### Verification
 
-Desktop builds completed, and PHP 8.4 syntax checks passed on both touched FreePBX module files. FreePBX module loading, cross-resource dispatch, reload, rollback, live calls, and runtime behavior remain unverified because no suitable deployment host was mutated. This ultra-speed change did not run tests, lint, separate type checking, accessibility or security suites, smoke checks, or screenshots.
+Desktop builds completed, and PHP 8.4 syntax checks passed on both previously touched FreePBX module files. During the runtime continuation, MaterialPBX module 0.1.0 installed and enabled on FreePBX 17, all three module tables were created, a ring-group artifact and snapshots compiled, and rollback restored the prior-null compiled state. Full FreePBX reload was not proven because the interrupted older container lacked generated custom include files. A fresh clean PBX image build and boot remain pending. The continuation did not run tests, lint, separate type checking, accessibility or security suites, smoke checks, screenshots, or builds.
 
 ## 0.1.0 · 2026-08-22
 
@@ -35,4 +37,3 @@ Desktop builds completed, and PHP 8.4 syntax checks passed on both touched FreeP
 ### Verification
 
 This ultra-speed implementation did not run tests, lint, type checking, accessibility checks, security checks, smoke checks, or screenshots.
-

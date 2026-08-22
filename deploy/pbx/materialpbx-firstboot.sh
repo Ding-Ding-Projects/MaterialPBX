@@ -15,6 +15,7 @@ test "$(sha256sum /usr/local/libexec/freepbx17-install.sh | cut -d' ' -f1)" = "a
 }
 
 echo "Starting the pinned FreePBX 17 installer. Detailed logs are written by the upstream installer under /var/log/pbx/."
+apt-get update >/dev/null
 /usr/local/libexec/freepbx17-install.sh
 
 fwconsole --version >/dev/null

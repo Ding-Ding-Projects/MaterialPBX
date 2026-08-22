@@ -34,6 +34,8 @@
 - [x] Add bounded IVR, voicemail, and time-condition compilers covering every typed application feature subset.
 - [ ] Adapt deployment platform support for an inventoried host or provision a dedicated Debian 12 amd64 host.
 - [ ] Resolve external HTTP/HTTPS publishing without disturbing the unrelated service already using ports 80 and 443.
-- [ ] Load the module on FreePBX 17 and verify its database migration and generation hook.
-- [ ] Prove generated ring-group dialplan, reload, rollback, disablement, deletion, and a real runtime call.
+- [x] Load module 0.1.0 on FreePBX 17, enable it, and verify creation of all three migration tables through `FreePBX::Database()`.
+- [x] Compile a ring-group artifact with snapshots and prove single-use rollback restores its prior-null compiled state.
+- [ ] Build and boot a fresh clean PBX container with the PATH-visible `fwconsole` link and corrected volume declarations.
+- [ ] Prove generated custom includes, a complete FreePBX reload, ring-group dialplan, disablement, deletion, and a real runtime call.
 - [ ] Verify cross-resource destination dispatch for all compiled feature subsets on a live FreePBX/Asterisk runtime.

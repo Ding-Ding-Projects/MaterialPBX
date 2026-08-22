@@ -12,6 +12,7 @@ RUN apt-get update \
       --output /usr/local/libexec/freepbx17-install.sh \
  && echo "${FREEPBX_INSTALLER_SHA256}  /usr/local/libexec/freepbx17-install.sh" | sha256sum --check --strict - \
  && chmod 0755 /usr/local/libexec/freepbx17-install.sh \
+ && ln -s /var/lib/asterisk/bin/fwconsole /usr/local/bin/fwconsole \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
@@ -25,6 +26,6 @@ RUN chmod 0755 /usr/local/libexec/materialpbx-firstboot.sh /usr/local/libexec/ma
  && systemctl mask systemd-logind.service getty.target console-getty.service
 
 STOPSIGNAL SIGRTMIN+3
-VOLUME ["/var/lib/mysql", "/etc/asterisk", "/var/lib/asterisk", "/var/spool/asterisk", "/var/www", "/etc/freepbx.conf", "/var/lib/materialpbx"]
+VOLUME ["/var/lib/mysql", "/etc/asterisk", "/var/lib/asterisk", "/var/spool/asterisk", "/var/www", "/var/lib/materialpbx"]
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["/sbin/init"]
