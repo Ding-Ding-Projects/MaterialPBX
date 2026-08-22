@@ -100,7 +100,7 @@ bundle_service() {
   cp "$source_dir/package-lock.json" "$bundle_stage/package-lock.json"
   (
     cd "$repo_root"
-    pnpm --offline --filter "@materialpbx/$service" deploy --prod --legacy "$deploy_stage"
+    pnpm --offline --filter "@materialpbx/$service" deploy --prod "$deploy_stage"
   )
   cp -aL "$deploy_stage/node_modules" "$bundle_stage/node_modules"
   rm -rf -- "$deploy_stage"
