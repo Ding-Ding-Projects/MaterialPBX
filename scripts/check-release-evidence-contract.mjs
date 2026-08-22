@@ -71,6 +71,7 @@ const required = [
   ["control payload in deployment bundle", ".github/workflows/release.yml", "dist/native-services/control-plane.tar.gz"],
   ["helper payload in deployment bundle", ".github/workflows/release.yml", "dist/native-services/privileged-helper.tar.gz"],
   ["native payload manifest proof", ".github/workflows/release.yml", "differs from manifest.sha256"],
+  ["native payload text-or-binary digest marker", ".github/workflows/release.yml", "^([0-9a-f]{64}) [ *](control-plane[.]tar[.]gz|privileged-helper[.]tar[.]gz)$"],
   ["staged release manifest", ".github/workflows/release.yml", "release-evidence/release-assets.json"],
   ["tag ref absence", ".github/workflows/release.yml", 'git ls-remote --tags origin "refs/tags/$tag"'],
   ["tag ref collision refusal", ".github/workflows/release.yml", "Tag ref refs/tags/$tag already exists; refusing to overwrite or recycle it."],

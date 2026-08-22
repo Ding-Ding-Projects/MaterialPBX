@@ -218,7 +218,7 @@ jobs:
             }
           }
           foreach ($line in Get-Content (Join-Path $payloadRoot 'manifest.sha256')) {
-            if ($line -notmatch '^([0-9a-f]{64})  (control-plane[.]tar[.]gz|privileged-helper[.]tar[.]gz)$') {
+            if ($line -notmatch '^([0-9a-f]{64}) [ *](control-plane[.]tar[.]gz|privileged-helper[.]tar[.]gz)$') {
               throw "The native payload manifest contains an unexpected line: $line"
             }
             $payloadPath = Join-Path $payloadRoot $Matches[2]
