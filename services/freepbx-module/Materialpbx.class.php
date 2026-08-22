@@ -65,12 +65,22 @@ SQL;
             $kind, $id, (int) $resource['revision'], !empty($resource['enabled']) ? 1 : 0,
             mb_substr((string) $resource['displayName'], 0, 256), $configuration
         ]);
-        if ($preview['status'] !== 'compiled') {
+        $prior = $this->Database->prepare('SELECT compiler, artifact FROM materialpbx_compiled WHERE resource_kind=? AND resource_id=? FOR UPDATE'); $prior->execute([$kind, $id]); $old = $prior->fetch(\PDO::FETCH_ASSOC) ?: [];
+        if ($preview['status'] === 'remove') {
+            if (!$old) { $this->Database->commit(); return ['storedDesired'=>true,'compilation'=>['status'=>'unsupported','compiler'=>null,'reason'=>'Disabled desired state was stored; no compiled artifact existed to remove.','snapshotId'=>null,'diff'=>[['operation'=>'unchanged','target'=>$kind.':'.$id,'summary'=>'No generated output existed.']]],'applied'=>false,'rollback'=>['attempted'=>false,'succeeded'=>null,'snapshotId'=>null,'reason'=>null]]; }
+            $snapshotId=self::uuid4();
+            $snapshot=$this->Database->prepare('INSERT INTO materialpbx_compiler_snapshots (snapshot_id,resource_kind,resource_id,prior_compiler,prior_artifact,created_at) VALUES (?,?,?,?,?,UTC_TIMESTAMP(6))'); $snapshot->execute([$snapshotId,$kind,$id,$old['compiler'],$old['artifact']]);
+            $remove=$this->Database->prepare('DELETE FROM materialpbx_compiled WHERE resource_kind=? AND resource_id=?'); $remove->execute([$kind,$id]);
             $this->Database->commit();
-            return ['storedDesired' => true, 'compilation' => ['status' => 'unsupported', 'compiler' => null, 'reason' => $preview['reason'], 'snapshotId' => null, 'diff' => $preview['diff']], 'applied' => false, 'rollback' => ['attempted' => false, 'succeeded' => null, 'snapshotId' => null, 'reason' => null]];
+            return ['storedDesired'=>true,'compilation'=>['status'=>'compiled','compiler'=>$old['compiler'],'reason'=>'Disabled desired state was stored and prior compiled output was removed.','snapshotId'=>$snapshotId,'diff'=>$preview['diff']],'applied'=>true,'rollback'=>['attempted'=>false,'succeeded'=>null,'snapshotId'=>$snapshotId,'reason'=>null]];
+        }
+        if ($preview['status'] !== 'compiled') {
+            $reason=$preview['reason']; $diff=$preview['diff'];
+            if ($old) { $reason .= ' Prior compiled output is retained, so runtime may differ from desired state.'; $diff=[['operation'=>'unchanged','target'=>$kind.':'.$id,'summary'=>'Prior compiled output was retained; runtime may differ from desired state.']]; }
+            $this->Database->commit();
+            return ['storedDesired'=>true,'compilation'=>['status'=>'unsupported','compiler'=>$old['compiler'] ?? null,'reason'=>$reason,'snapshotId'=>null,'diff'=>$diff],'applied'=>false,'rollback'=>['attempted'=>false,'succeeded'=>null,'snapshotId'=>null,'reason'=>null]];
         }
         $snapshotId = self::uuid4();
-        $prior = $this->Database->prepare('SELECT compiler, artifact FROM materialpbx_compiled WHERE resource_kind=? AND resource_id=? FOR UPDATE'); $prior->execute([$kind, $id]); $old = $prior->fetch(\PDO::FETCH_ASSOC) ?: [];
         $snapshot = $this->Database->prepare('INSERT INTO materialpbx_compiler_snapshots (snapshot_id, resource_kind, resource_id, prior_compiler, prior_artifact, created_at) VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP(6))'); $snapshot->execute([$snapshotId, $kind, $id, $old['compiler'] ?? null, $old['artifact'] ?? null]);
         $compiled = $this->Database->prepare('INSERT INTO materialpbx_compiled (resource_kind, resource_id, compiler, artifact, updated_at) VALUES (?, ?, ?, ?, UTC_TIMESTAMP(6)) ON DUPLICATE KEY UPDATE compiler=VALUES(compiler), artifact=VALUES(artifact), updated_at=VALUES(updated_at)'); $compiled->execute([$kind, $id, $preview['compiler'], json_encode($preview['artifact'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)]);
         $this->Database->commit();

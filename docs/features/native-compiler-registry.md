@@ -14,6 +14,8 @@ Before replacing a compiled artifact, the module locks the prior row and stores 
 
 Unsupported or disabled compilation still upserts the normalized desired record in its own transaction before returning `storedDesired=true`; compiled output remains untouched. Deleting a resource locks any compiled artifact, snapshots it, removes desired and compiled rows in one transaction, and returns a removal diff plus rollback identity. When no compiled artifact exists, deletion removes desired state but reports native compilation unsupported and does not trigger a reload.
 
+Disabling a previously compiled ring group is a supported removal transition: desired state, snapshot, and compiled-artifact removal commit together, then FreePBX reloads while runtime verification remains pending. If no compiled artifact exists, disabled desired state is stored as an honest no-op with no reload. For any other unsupported edit with prior compiled output, the result explicitly says that output was retained and runtime may differ from desired state.
+
 ## Result semantics
 
 Responses distinguish `storedDesired`, compilation status and diff, snapshot identity, `applied`, `reloaded`, `runtimeVerification: pending`, partial failure, and rollback outcome. A compiler-unsupported result exits successfully at the bounded bridge but returns `applied=false`; the control plane does not reload FreePBX.

@@ -8,7 +8,7 @@ final class NativeCompilerRegistry
         $kind = (string)($resource['kind'] ?? '');
         if ($kind !== 'ring-groups') return $this->unsupported($kind, 'No documented native compiler is registered for this feature.');
         $config = $resource['configuration'] ?? [];
-        if (empty($resource['enabled'])) return $this->unsupported($kind, 'Disabled ring groups are stored but not compiled.');
+        if (empty($resource['enabled'])) return ['status' => 'remove', 'compiler' => 'ring-group-get-config-v1', 'reason' => 'The disabled ring group requires removal of any prior module-owned output.', 'artifact' => null, 'diff' => [['operation' => 'remove', 'target' => 'ring-groups:' . (string)$resource['id'], 'summary' => 'Remove prior generated output when it exists.']]];
         if (($config['failoverDestination']['type'] ?? null) !== 'terminate') return $this->unsupported($kind, 'Native ring-group compilation supports terminate failover only.');
         $members = $config['memberExtensionIds'] ?? [];
         if (!is_array($members) || count($members) < 1 || count($members) > 64) return $this->unsupported($kind, 'Ring groups require 1 to 64 members.');
