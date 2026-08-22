@@ -3,7 +3,7 @@ import { chmod, chown, mkdir, readdir, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { dirname } from "node:path";
 import { z } from "zod";
-import { CapabilityRegistrySchema, resourceKinds, type CapabilityRegistry } from "@materialpbx/protocol";
+import { CapabilityRegistrySchema, FreePbxApplicationRequestSchema, type CapabilityRegistry } from "@materialpbx/protocol";
 
 const socketPath = process.env.PRIVILEGED_HELPER_SOCKET ?? "/run/materialpbx/privileged.sock";
 const socketGroupId = Number.parseInt(process.env.MATERIALPBX_SOCKET_GID ?? "0", 10);
@@ -12,7 +12,7 @@ const RequestSchema = z.object({
   requestId: z.string().uuid(),
   operation: z.enum([
     "system.capabilities", "fwconsole.version", "fwconsole.reload", "fwconsole.status",
-    "freepbx.resource.sync", "freepbx.backup.start", "freepbx.backup.status",
+    "freepbx.application.apply", "freepbx.application.remove", "freepbx.backup.start", "freepbx.backup.status",
     "asterisk.version", "asterisk.module.list", "asterisk.dialplan.reload", "asterisk.callfile.submit"
   ]),
   parameters: z.record(z.string(), z.unknown()).default({})
@@ -30,12 +30,16 @@ function commandFor(request: z.infer<typeof RequestSchema>): CommandSpec | null 
     case "asterisk.version": return { executable: "/usr/sbin/asterisk", args: ["-rx", "core show version"], timeoutMs: 10_000 };
     case "asterisk.module.list": return { executable: "/usr/sbin/asterisk", args: ["-rx", "module show"], timeoutMs: 20_000 };
     case "asterisk.dialplan.reload": return { executable: "/usr/sbin/asterisk", args: ["-rx", "dialplan reload"], timeoutMs: 30_000 };
-    case "freepbx.resource.sync": {
-      const kind = z.enum(resourceKinds).parse(p.kind);
+    case "freepbx.application.apply": {
+      const application = FreePbxApplicationRequestSchema.parse(p);
+      const kindByFeature = { extension: "extensions", trunk: "trunks", "inbound-route": "inbound-routes", "outbound-route": "outbound-routes", ivr: "ivrs", queue: "queues", "ring-group": "ring-groups", voicemail: "voicemail-boxes", "time-condition": "time-conditions" } as const;
+      return { executable: "/usr/sbin/fwconsole", args: ["materialpbx", "--operation", "sync", "--kind", kindByFeature[application.feature], "--id", application.id], timeoutMs: 60_000 };
+    }
+    case "freepbx.application.remove": {
+      const feature = z.enum(["extension", "trunk", "inbound-route", "outbound-route", "ivr", "queue", "ring-group", "voicemail", "time-condition"]).parse(p.feature);
       const id = Identifier.parse(p.id);
-      const args = ["materialpbx", "--operation", "sync", "--kind", kind, "--id", id];
-      if (p.deleted === true) args.push("--deleted");
-      return { executable: "/usr/sbin/fwconsole", args, timeoutMs: 60_000 };
+      const kindByFeature = { extension: "extensions", trunk: "trunks", "inbound-route": "inbound-routes", "outbound-route": "outbound-routes", ivr: "ivrs", queue: "queues", "ring-group": "ring-groups", voicemail: "voicemail-boxes", "time-condition": "time-conditions" } as const;
+      return { executable: "/usr/sbin/fwconsole", args: ["materialpbx", "--operation", "sync", "--kind", kindByFeature[feature], "--id", id, "--deleted"], timeoutMs: 60_000 };
     }
     case "freepbx.backup.start": {
       const id = Identifier.parse(p.id);

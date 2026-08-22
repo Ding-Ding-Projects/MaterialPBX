@@ -22,20 +22,20 @@ The MaterialPBX control plane provides a typed API above Asterisk 22 and FreePBX
 
 The API represents extensions, users, devices, trunks, inbound and outbound routes, IVRs, queues, conferences, voicemail boxes, recording policies, calendars, presence states, parking lots, paging groups, announcements, time conditions, call files, dynamic features, and WebRTC clients through one versioned envelope. Each write includes a display name, enable state, bounded configuration document, and optional expected revision.
 
-The generic envelope guarantees transport, revision, audit, bounds, and adapter behavior while the FreePBX module owns resource-specific compilation. Unsupported fields remain data and do not become executable Asterisk syntax. Resource-specific schemas must be added before enabling any advanced field that changes dialplan behavior.
+The generic envelope guarantees transport, revision, audit, and bounds. Live application is narrower: extensions, PJSIP trunks, inbound and outbound routes, IVRs, queues, ring groups, voicemail boxes, and time conditions must pass feature-specific normalized schemas before the fixed helper adapter runs. Other kinds and invalid configurations remain stored drafts with an explicit unsupported result. Unsupported fields never become executable Asterisk syntax.
 
 ## Request path
 
 1. Fastify enforces a 1 MiB body limit, request timeout, rate limit, CORS origin, and administrator bearer credential.
 2. Zod validates route, query, and body values.
 3. The resource store performs optimistic revision comparison and an atomic durable write.
-4. The control plane asks the privileged helper to synchronize exactly one resource.
+4. The control plane constructs an exact ordered application plan and asks the privileged helper to apply one validated feature payload.
 5. The helper runs the allowlisted FreePBX bridge command without a shell.
 6. The bridge reads the desired record, creates only module-owned output, and returns status.
 7. `fwconsole reload` applies configuration; its outcome remains separate from persistence.
 8. The API publishes a WebSocket event and appends an audit record.
 
-A saved resource can be durable while application fails. Responses preserve this distinction through `resource`, `application.applied`, `application.reloaded`, and `application.warning`.
+A saved resource can be durable while application is unsupported or fails. Responses preserve this distinction through the exact plan, validation evidence, `application.applied`, `application.reloaded`, `application.partialFailure`, and `application.warning`.
 
 ## Runtime and historical state
 

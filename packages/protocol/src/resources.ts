@@ -9,6 +9,7 @@ export const resourceKinds = [
   "outbound-routes",
   "ivrs",
   "queues",
+  "ring-groups",
   "conferences",
   "voicemail-boxes",
   "recording-policies",
