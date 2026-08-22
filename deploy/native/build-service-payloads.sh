@@ -73,6 +73,7 @@ command -v node >/dev/null 2>&1 || { echo "Node.js 22 or newer is required to bu
 node_major=$(node -p 'Number(process.versions.node.split(".")[0])')
 test "$node_major" -ge 22 || { echo "Node.js 22 or newer is required to build the native service payloads." >&2; exit 69; }
 command -v npm >/dev/null 2>&1 || { echo "npm is required to run the repository build scripts." >&2; exit 69; }
+command -v pnpm >/dev/null 2>&1 || { echo "pnpm is required to deploy the locked production dependency graph." >&2; exit 69; }
 
 for project in packages/protocol services/control-plane services/privileged-helper; do
   test -d "$repo_root/$project/node_modules" || {
@@ -92,12 +93,22 @@ bundle_service() {
   service=$1
   source_dir=$repo_root/services/$service
   bundle_stage=$stage/$service
+  deploy_stage=$stage/.deploy-$service
   install -d -m 0755 "$bundle_stage"
   cp -a "$source_dir/dist" "$bundle_stage/dist"
-  cp -aL "$source_dir/node_modules" "$bundle_stage/node_modules"
   cp "$source_dir/package.json" "$bundle_stage/package.json"
   cp "$source_dir/package-lock.json" "$bundle_stage/package-lock.json"
-  npm --prefix "$bundle_stage" prune --omit=dev --ignore-scripts --offline
+  (
+    cd "$repo_root"
+    pnpm --offline --filter "@materialpbx/$service" deploy --prod --legacy "$deploy_stage"
+  )
+  cp -aL "$deploy_stage/node_modules" "$bundle_stage/node_modules"
+  rm -rf -- "$deploy_stage"
+  # The dereferenced direct packages now contain their transitive runtime
+  # dependencies. The virtual store and package-manager metadata are build
+  # implementation details, not a second copy of the installed payload.
+  rm -rf -- "$bundle_stage/node_modules/.pnpm"
+  find "$bundle_stage" -mindepth 1 -name '.*' -exec rm -rf -- {} +
   # npm writes this install-state cache with a leading dot. It is not needed at
   # runtime and cannot be admitted by the installed payload path grammar.
   rm -f -- "$bundle_stage/node_modules/.package-lock.json"
@@ -108,7 +119,7 @@ bundle_service() {
   # package, including one ZIP whose directory contains spaces. The service
   # never imports those fixtures, and immutable payloads intentionally admit
   # runtime files only.
-  rm -rf -- "$bundle_stage/node_modules/thread-stream/test"
+  find "$bundle_stage/node_modules" -type d -path '*/thread-stream/test' -prune -exec rm -rf -- {} +
   rm -rf -- "$bundle_stage/node_modules/@materialpbx/protocol"
   install -d -m 0755 "$bundle_stage/node_modules/@materialpbx/protocol"
   cp -a "$repo_root/packages/protocol/dist" "$bundle_stage/node_modules/@materialpbx/protocol/dist"
