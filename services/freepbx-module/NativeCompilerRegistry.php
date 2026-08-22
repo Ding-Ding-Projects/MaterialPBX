@@ -8,6 +8,8 @@ final class NativeCompilerRegistry
         $kind = (string)($resource['kind'] ?? '');
         if ($kind === 'extensions') return $this->previewExtension($resource);
         if ($kind === 'trunks') return $this->previewTrunk($resource);
+        if ($kind === 'inbound-routes') return $this->previewInboundRoute($resource);
+        if ($kind === 'outbound-routes') return $this->previewOutboundRoute($resource);
         if ($kind === 'queues') return $this->previewQueue($resource);
         if ($kind !== 'ring-groups') return $this->unsupported($kind, 'No documented native compiler is registered for this feature.');
         $config = $resource['configuration'] ?? [];
@@ -48,6 +50,34 @@ final class NativeCompilerRegistry
         $endpoint = 'materialpbx-trunk-' . substr(hash('sha256', (string)$resource['id']), 0, 16);
         $artifact = ['schemaVersion' => 1, 'compiler' => 'trunk-get-config-v1', 'endpoint' => $endpoint, 'host' => $host, 'port' => $port, 'transport' => $transport];
         return ['status' => 'compiled', 'compiler' => $artifact['compiler'], 'reason' => 'The PJSIP trunk can use the bounded module-owned generation hook.', 'artifact' => $artifact, 'diff' => [['operation' => 'replace', 'target' => $endpoint, 'summary' => "Generate the module-owned PJSIP trunk endpoint for {$host}:{$port}/{$transport}."]]];
+    }
+    private function previewInboundRoute(array $resource): array
+    {
+        $config = $resource['configuration'] ?? [];
+        if (empty($resource['enabled'])) return ['status' => 'remove', 'compiler' => 'inbound-route-get-config-v1', 'reason' => 'The disabled inbound route requires removal of any prior module-owned output.', 'artifact' => null, 'diff' => [['operation' => 'remove', 'target' => 'inbound-routes:' . (string)$resource['id'], 'summary' => 'Remove prior generated output when it exists.']]];
+        $did = (string)($config['didPattern'] ?? '');
+        if (!preg_match('/^[0-9XZN*#+.!\[\]-]{1,64}$/D', $did)) return $this->unsupported('inbound-routes', 'The DID pattern is invalid.');
+        if (!isset($config['destination']['type'])) return $this->unsupported('inbound-routes', 'An inbound route requires a destination type.');
+        if (!in_array($config['destination']['type'], ['extension', 'ivr', 'queue', 'ring-group', 'voicemail', 'terminate'], true)) return $this->unsupported('inbound-routes', 'The inbound destination type is unsupported.');
+        if (($config['destination']['type'] ?? '') !== 'terminate' && empty($config['destination']['id'])) return $this->unsupported('inbound-routes', 'A non-terminate inbound route requires a destination identifier.');
+        $context = 'materialpbx-in-' . substr(hash('sha256', (string)$resource['id']), 0, 16);
+        $artifact = ['schemaVersion' => 1, 'compiler' => 'inbound-route-get-config-v1', 'context' => $context, 'didPattern' => $did, 'callerIdPattern' => isset($config['callerIdPattern']) ? (string)$config['callerIdPattern'] : null, 'destination' => ['type' => (string)$config['destination']['type'], 'id' => isset($config['destination']['id']) ? (string)$config['destination']['id'] : null]];
+        return ['status' => 'compiled', 'compiler' => $artifact['compiler'], 'reason' => 'The inbound route can generate a bounded module-owned context.', 'artifact' => $artifact, 'diff' => [['operation' => 'replace', 'target' => $context, 'summary' => "Generate the module-owned inbound context for DID {$did}."]]];
+    }
+    private function previewOutboundRoute(array $resource): array
+    {
+        $config = $resource['configuration'] ?? [];
+        if (empty($resource['enabled'])) return ['status' => 'remove', 'compiler' => 'outbound-route-get-config-v1', 'reason' => 'The disabled outbound route requires removal of any prior module-owned output.', 'artifact' => null, 'diff' => [['operation' => 'remove', 'target' => 'outbound-routes:' . (string)$resource['id'], 'summary' => 'Remove prior generated output when it exists.']]];
+        $patterns = $config['dialPatterns'] ?? [];
+        $trunks = $config['trunkIds'] ?? [];
+        if (!is_array($patterns) || count($patterns) < 1 || count($patterns) > 128) return $this->unsupported('outbound-routes', 'An outbound route needs 1 to 128 dial patterns.');
+        foreach ($patterns as $pattern) if (!is_string($pattern) || !preg_match('/^[0-9XZN*#+.!\[\]-]{1,64}$/D', $pattern)) return $this->unsupported('outbound-routes', 'An outbound dial pattern is invalid.');
+        if (!is_array($trunks) || count($trunks) < 1 || count($trunks) > 16) return $this->unsupported('outbound-routes', 'An outbound route needs 1 to 16 trunk identifiers.');
+        foreach ($trunks as $trunk) if (!is_string($trunk) || !preg_match('/^[A-Za-z0-9_.:@+\-]{1,128}$/D', $trunk)) return $this->unsupported('outbound-routes', 'An outbound trunk identifier is invalid.');
+        if (!empty($config['emergency']) && count($trunks) !== 1) return $this->unsupported('outbound-routes', 'Emergency routes must name exactly one trunk.');
+        $context = 'materialpbx-out-' . substr(hash('sha256', (string)$resource['id']), 0, 16);
+        $artifact = ['schemaVersion' => 1, 'compiler' => 'outbound-route-get-config-v1', 'context' => $context, 'dialPatterns' => array_values(array_map('strval', $patterns)), 'trunkIds' => array_values(array_map('strval', $trunks)), 'emergency' => !empty($config['emergency'])];
+        return ['status' => 'compiled', 'compiler' => $artifact['compiler'], 'reason' => 'The outbound route can generate bounded module-owned pattern contexts.', 'artifact' => $artifact, 'diff' => [['operation' => 'replace', 'target' => $context, 'summary' => 'Generate module-owned outbound pattern and trunk-selection contexts.']]];
     }
     private function previewQueue(array $resource): array
     {

@@ -34,6 +34,14 @@ class Materialpbx extends \FreePBX_Helpers implements \BMO
                 $this->appendPjsipSection($artifact['endpoint'], ['type' => 'endpoint', 'context' => 'from-trunk', 'disallow' => 'all', 'allow' => 'opus,ulaw']);
                 $this->appendPjsipSection($artifact['endpoint'], ['type' => 'aor', 'contact' => "sip:{$artifact['host']}:{$artifact['port']}"]);
                 $this->appendPjsipSection($artifact['endpoint'], ['type' => 'identify', 'endpoint' => $artifact['endpoint'], 'match' => $artifact['host']]);
+            } elseif ($compiler === 'inbound-route-get-config-v1') {
+                $destination = $artifact['destination'];
+                $ext->add($artifact['context'], $artifact['didPattern'], 1, new \ext_noop('MaterialPBX generated inbound route'));
+            } elseif ($compiler === 'outbound-route-get-config-v1') {
+                foreach ($artifact['dialPatterns'] as $index => $pattern) {
+                    $priority = (int)$index + 1;
+                    $ext->add($artifact['context'], $pattern, $priority, new \ext_noop('MaterialPBX generated outbound route pattern'));
+                }
             }
         }
     }

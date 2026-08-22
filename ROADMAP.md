@@ -30,8 +30,9 @@
 - [x] Compile the bounded enabled ring-group subset through the FreePBX generation hook, including transactional disablement and deletion removal.
 - [x] Add the bounded enabled queue compiler through the same transactional snapshot path, including guided member controls.
 - [x] Add bounded extension and credentialless PJSIP trunk compilers with explicit generation boundaries.
+- [x] Add bounded inbound/outbound route compilers with validated patterns, destinations, trunk order, and emergency constraints.
 - [ ] Adapt deployment platform support for an inventoried host or provision a dedicated Debian 12 amd64 host.
 - [ ] Resolve external HTTP/HTTPS publishing without disturbing the unrelated service already using ports 80 and 443.
 - [ ] Load the module on FreePBX 17 and verify its database migration and generation hook.
 - [ ] Prove generated ring-group dialplan, reload, rollback, disablement, deletion, and a real runtime call.
-- [ ] Add reviewed native compilers for inbound/outbound routes, IVRs, voicemail, and time conditions.
+- [ ] Add reviewed native compilers for IVRs, voicemail, and time conditions.

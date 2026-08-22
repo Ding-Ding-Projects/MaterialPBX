@@ -7,6 +7,7 @@
 - Added a transactional native compiler registry for the safely bounded ring-group subset. It previews module-owned output, snapshots prior artifacts, applies and removes them through the FreePBX generation hook, provides rollback identity, and reports stored desired state, compiled state, reload state, and pending runtime verification separately.
 - Added the bounded `queue-get-config-v1` compiler for enabled queues with 1–256 unique validated members, supported Asterisk strategies, terminate failover, and a 1–3600 second timeout. Disabled queues now remove prior output through the same transactional snapshot path. The queue editor gained guided member add/remove controls.
 - Added bounded `extension-get-config-v1` and credentialless `trunk-get-config-v1` compilers. Extensions generate validated module-owned internal contexts; PJSIP trunks support UDP/TCP/TLS with field-validated endpoint/AOR/identify records. Registration and referenced credentials remain explicitly unsupported.
+- Added bounded `inbound-route-get-config-v1` and `outbound-route-get-config-v1` compilers. Inbound routes validate DID/Caller ID patterns and destination types. Outbound routes validate 1–128 patterns, 1–16 trunk identifiers, and require exactly one trunk for emergency routes. The route editors gained interactive pattern/trunk list controls.
 - Kept extensions, trunks, inbound and outbound routes, IVRs, queues, voicemail, and time conditions explicitly unsupported for native compilation until documented FreePBX APIs or reviewed compilers exist. Disabled ring groups remove prior compiled output transactionally; unsupported edits disclose when retained output may differ from desired state.
 - Recorded deployment preflight constraints without changing a server: the bootstrap currently supports Debian 12 on amd64 only; the inventoried general host is ARM64, the x86_64 host runs Debian 13 and already uses ports 80 and 443 for the unrelated HeapAndyville proxy, and the other ARM64 host is busy.
 - Replaced the generic disconnected shell for extensions, trunks, incoming and outgoing routes, phone menus, queues, live operations, and paired servers with feature-specific visual control rooms and typed editors.
@@ -17,7 +18,7 @@
 
 ### Verification
 
-Protocol/control-plane/desktop builds completed, and PHP 8.4 syntax checks passed on both touched FreePBX module files. FreePBX module loading, generated dialplan/PJSIP output, reload, rollback, live calls, and runtime behavior remain unverified because no suitable deployment host was mutated. This ultra-speed change did not run tests, lint, separate type checking, accessibility or security suites, smoke checks, or screenshots.
+Protocol/desktop builds completed, and PHP 8.4 syntax checks passed on both touched FreePBX module files. FreePBX module loading, cross-resource dispatch, reload, rollback, live calls, and runtime behavior remain unverified because no suitable deployment host was mutated. This ultra-speed change did not run tests, lint, separate type checking, accessibility or security suites, smoke checks, or screenshots.
 
 ## 0.1.0 · 2026-08-22
 
