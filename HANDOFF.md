@@ -29,7 +29,7 @@
 - Live database evidence showed a ring-group artifact and its snapshots compiled successfully. Single-use rollback restored the prior-null state by removing the compiled artifact and marking the snapshot restored. This proves migration, transactional compilation, snapshot creation, and rollback behavior for that exercised subset.
 - Full FreePBX reload is not proven. The exercised container was an interrupted older bootstrap and lacked the generated custom include files required by the installed FreePBX configuration. A fresh clean image build and first boot are still pending after adding a PATH-visible `fwconsole` symlink and removing the invalid `/etc/freepbx.conf` file-path volume declaration.
 - Package builds completed for the protocol, privileged helper, and control plane. The continuation did not run tests, lint, type checking, security or accessibility checks, smoke checks, screenshots, a fresh container build, or a real call.
-- Release context: `build-118-fce1427` is the latest verified release before this landing repair is published. No release for the uncommitted repair is claimed.
+- Release `build-120-27d5ff4` is a verified non-draft publication for the landing repair at `27d5ff4bff8de086c04e68c4ddeec3b0f277cbc7`. Its unsigned installer is 136,000,512 bytes with SHA-256 `d60a19fe4002e8d770ec209cfda41df290bfb134e83adafff010752c85853592`; the full package, `RELEASES`, and checksum manifest are attached to the same release.
 
 ## Hosted deployment preflight
 
@@ -46,7 +46,7 @@
 - The runtime lane owns the control service, deployment artifacts, protocol implementation, and production telephony behavior. This UI sends only the documented control-service requests and never treats an unconfirmed response as success.
 - The documentation site uses GitHub's stable latest-release asset route for the latest verified non-draft unsigned MaterialPBX 0.1.0 Windows installer. It does not hardcode a release tag or source commit that can become stale.
 - GitHub Pages is live at <https://ding-ding-projects.github.io/MaterialPBX/>.
-- A managed Sites project is bound in `site/.openai/hosting.json`. Its source repository reached commit `7cbaa8f3e01965e76f1249478b45ebbf5dab6d24`; the current repair still needs an exact-commit source publication, saved version, deployment, and live-URL verification.
+- A managed Sites project is bound in `site/.openai/hosting.json` and is public at <https://materialpbx.yeredow264.chatgpt.site/>. Its first exact-source deployment succeeded from commit `27d5ff4bff8de086c04e68c4ddeec3b0f277cbc7`; an unauthenticated read returned `200` and loaded the expected root-based 734,551-byte JavaScript asset.
 - Commit `41d75a5f2eb7cc7ac1426ee12fb0c4a668ed10f9` restricted release and Pages push triggers to `main` after release-created tags recursively triggered duplicate releases. Historical duplicates remain immutable; no tags or releases were deleted.
 
 ## Next actions
@@ -59,5 +59,4 @@
 6. Build and boot a fresh clean PBX container, then prove the generated custom includes load during a complete FreePBX reload.
 7. Prove generated dialplan, disablement, deletion, actual calls/dispatch for every compiled subset, and credentialless PJSIP trunk behavior.
 8. Implement the remaining native compilers only through documented FreePBX APIs or reviewed module-owned generation paths.
-9. Publish the managed site version from the exact pushed commit and verify its live URL without treating local compilation as deployment proof.
-10. Re-run browser, responsive, keyboard, contrast, and visual checks when the approved cheap headless route is reachable.
+9. Re-run browser, responsive, keyboard, contrast, and visual checks when the approved cheap headless route is reachable.

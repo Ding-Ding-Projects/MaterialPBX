@@ -17,7 +17,7 @@
 - [x] Finish the public walkthrough with an exportable local planning checklist and installed-or-hosted continuation instead of a disconnected runtime dead end.
 - [x] Make the landing controls reactive, derive the Asterisk feature map from the page registry, use SVG icon paths, and preserve the call-flow topology on narrow layouts.
 - [x] Add a managed Sites/Cloudflare Worker build beside the GitHub Pages build.
-- [ ] Publish and verify the managed production deployment from the exact pushed source version.
+- [x] Publish and verify the managed production deployment from the exact pushed source version.
 - [x] Add a real control-service preflight, health/capability states, permission-aware resource loading, and confirmed-save path.
 - [ ] Exercise those paths against a deployed control service and prove real PBX operations after the ultra-speed pass.
 
