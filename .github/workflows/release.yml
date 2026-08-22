@@ -1,0 +1,64 @@
+name: Build and publish Windows release
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package-and-release:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: pnpm/action-setup@v4
+        with: { version: 10.33.2 }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm assets
+      - run: pnpm build
+      - run: pnpm package:windows
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Stage release files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release | Out-Null
+          Copy-Item apps/desktop/dist/squirrel-windows/squirrel-windows/* release/ -Force
+          Get-FileHash release/* -Algorithm SHA256 | ForEach-Object { "{0}  {1}" -f $_.Hash.ToLower(), $_.Path.Split([IO.Path]::DirectorySeparatorChar)[-1] } | Set-Content release/SHA256SUMS.txt
+      - name: Publish unique release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.ORG_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "build-$env:GITHUB_RUN_NUMBER-$($env:GITHUB_SHA.Substring(0,7))"
+          $runJobs = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID/jobs" | ConvertFrom-Json
+          $startedAt = [DateTimeOffset]::Parse(($runJobs.jobs | Sort-Object started_at | Select-Object -First 1).started_at)
+          $notes = @"
+          # MaterialPBX $tag
+
+          Windows Squirrel installer generated from commit `$env:GITHUB_SHA`.
+
+          > [!WARNING]
+          > The installer is intentionally unsigned and may show an unknown-publisher or SmartScreen warning.
+
+          This workflow builds and packages only. It does not run tests, lint, type checking, accessibility checks, security checks, smoke checks, or screenshots.
+
+          "@
+          gh release create $tag release/* --title "MaterialPBX $tag" --notes $notes --target $env:GITHUB_SHA --latest
+          $completedAt = [DateTimeOffset]::UtcNow
+          $duration = $completedAt - $startedAt
+          $timing = @"
+
+          ## Workflow timing
+
+          - Workflow started: `$($startedAt.UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ssZ'))`
+          - Workflow completed: `$($completedAt.UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ssZ'))`
+          - Workflow duration: `$('{0:00}:{1:00}:{2:00}' -f [Math]::Floor($duration.TotalHours), $duration.Minutes, $duration.Seconds)`
+          "@
+          gh release edit $tag --notes ($notes + $timing)

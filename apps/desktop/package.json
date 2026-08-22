@@ -1,0 +1,49 @@
+{
+  "name": "materialpbx-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MaterialPBX Windows desktop lab",
+  "author": "Ding Ding Projects",
+  "main": "electron/main.mjs",
+  "scripts": {
+    "build": "vite build",
+    "package:windows": "pnpm build && electron-builder --win squirrel --publish never"
+  },
+  "dependencies": {
+    "@materialpbx/client": "workspace:*",
+    "@materialpbx/design-integration": "workspace:*",
+    "@materialpbx/ui": "workspace:*",
+    "@worldlens/design-system": "https://github.com/Ding-Ding-Projects/worldlens/releases/download/design-system-v0.1.0/worldlens-design-system-0.1.0.tgz",
+    "electron-updater": "6.6.2",
+    "vue": "3.5.40",
+    "vuetify": "3.13.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.3",
+    "electron": "38.3.0",
+    "electron-builder": "26.15.3",
+    "electron-builder-squirrel-windows": "26.15.3",
+    "sass": "1.93.2",
+    "vite": "6.4.3"
+  },
+  "build": {
+    "appId": "com.dingdingprojects.materialpbx",
+    "productName": "MaterialPBX",
+    "asar": true,
+    "forceCodeSigning": false,
+    "directories": { "output": "dist/squirrel-windows", "buildResources": "../../assets/generated" },
+    "files": ["electron/**/*", "dist-renderer/**/*", "package.json"],
+    "win": {
+      "icon": "../../assets/generated/materialpbx.ico",
+      "target": ["squirrel"],
+      "signAndEditExecutable": false,
+      "signExecutable": false
+    },
+    "squirrelWindows": {
+      "iconUrl": "https://ding-ding-projects.github.io/MaterialPBX/materialpbx.ico",
+      "artifactName": "MaterialPBX-${version}-${arch}-Setup.${ext}",
+      "msi": false
+    }
+  }
+}

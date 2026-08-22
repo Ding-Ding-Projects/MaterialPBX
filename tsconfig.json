@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "jsx": "preserve",
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@materialpbx/client": ["packages/client/src/index.ts"],
+      "@materialpbx/design-integration": ["packages/design-integration/src/index.ts"],
+      "@materialpbx/ui": ["packages/ui/src/index.ts"]
+    }
+  }
+}
+
