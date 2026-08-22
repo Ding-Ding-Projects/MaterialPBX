@@ -210,6 +210,8 @@ const resourceForms: Record<string, Array<{ key: string; label: string; type: st
   ivrs: [
     { key: 'name', label: 'Menu name', type: 'text', help: 'A caller-friendly purpose, such as Main welcome menu.' },
     { key: 'recording', label: 'Greeting', type: 'select', options: ['Choose a verified recording','Record a new greeting'], help: 'Callers hear this before choosing a key.' },
+    { key: 'entries', label: 'Key choices', type: 'members', help: 'Add one digit and its destination per choice, using digits 0–9, *, or #.' },
+    { key: 'timeoutSeconds', label: 'Menu timeout seconds', type: 'number', help: 'How long the menu waits before the safe fallback, from 1 to 60 seconds.' },
     { key: 'timeout', label: 'Seconds to wait', type: 'slider', help: 'How long the menu waits before its no-answer destination.' },
     { key: 'invalidDestination', label: 'Invalid key destination', type: 'select', options: ['Repeat menu','Operator extension','Voicemail','Hang up'], help: 'The safe next step after an unavailable key.' },
   ],
@@ -220,6 +222,18 @@ const resourceForms: Record<string, Array<{ key: string; label: string; type: st
     { key: 'ringSeconds', label: 'Seconds per attempt', type: 'slider', help: 'How long each available phone rings.' },
     { key: 'timeoutSeconds', label: 'Queue timeout seconds', type: 'number', help: 'How long callers may remain in the queue before the safe fallback.' },
     { key: 'maxWait', label: 'Maximum wait', type: 'select', options: ['5 minutes','10 minutes','20 minutes','No fixed limit'], help: 'After this, send the caller to the fallback destination.' },
+  ],
+  voicemail: [
+    { key: 'mailbox', label: 'Mailbox number', type: 'number', help: 'A validated 2 to 12 digit numeric mailbox.' },
+    { key: 'email', label: 'Notification email', type: 'text', help: 'Optional. Used only when the server has a verified mail route.' },
+    { key: 'attachAudio', label: 'Attach audio to email notifications', type: 'switch', help: 'Include the recorded message when email delivery is configured.' },
+    { key: 'maxMessageSeconds', label: 'Maximum message seconds', type: 'number', help: 'Between 10 and 3600 seconds.' },
+  ],
+  'time-conditions': [
+    { key: 'timezone', label: 'Timezone', type: 'text', help: 'Use an IANA timezone identifier such as America/Toronto or Asia/Hong_Kong.' },
+    { key: 'windows', label: 'Open windows', type: 'members', help: 'Add weekday/start/end windows in expert JSON form until the guided window editor ships.' },
+    { key: 'matchedDestination', label: 'Matched destination', type: 'text', help: 'Destination identifier used during open hours.' },
+    { key: 'unmatchedDestination', label: 'Unmatched destination', type: 'text', help: 'Destination identifier used outside open hours.' },
   ],
   observability: [
     { key: 'refresh', label: 'Refresh interval', type: 'select', options: ['10 seconds','30 seconds (recommended)','1 minute','Manual'], help: 'Slower refresh uses fewer server resources.' },
@@ -259,9 +273,9 @@ const listMembers = ref<Array<{ id: string; label: string }>>([])
 const currentForm = computed(() => resourceForms[activePage.value] ?? genericForm)
 const membersKey = computed(() => currentForm.value.find((field) => field.type === 'members')?.key ?? '')
 const activeMembers = computed(() => membersKey.value === 'memberExtensionIds' ? queueMembers.value : listMembers.value)
-const membersEditorLabel = computed(() => ({ memberExtensionIds: 'Queue members', dialPatterns: 'Dial patterns', trunkIds: 'Trunk order' }[membersKey.value as 'memberExtensionIds' | 'dialPatterns' | 'trunkIds'] ?? 'Items'))
-const membersFieldLabel = computed(() => ({ memberExtensionIds: 'Member extension or endpoint', dialPatterns: 'Asterisk dial pattern', trunkIds: 'Trunk identifier' }[membersKey.value as 'memberExtensionIds' | 'dialPatterns' | 'trunkIds'] ?? 'Identifier'))
-const membersEmptyMessage = computed(() => membersKey.value === 'memberExtensionIds' ? 'No members yet. A queue needs at least one destination.' : `No ${membersEditorLabel.value.toLowerCase()} yet. This route needs at least one item.`)
+const membersEditorLabel = computed(() => ({ memberExtensionIds: 'Queue members', dialPatterns: 'Dial patterns', trunkIds: 'Trunk order', entries: 'IVR key choices', windows: 'Open windows' }[membersKey.value as 'memberExtensionIds' | 'dialPatterns' | 'trunkIds' | 'entries' | 'windows'] ?? 'Items'))
+const membersFieldLabel = computed(() => ({ memberExtensionIds: 'Member extension or endpoint', dialPatterns: 'Asterisk dial pattern', trunkIds: 'Trunk identifier', entries: 'Key choice JSON, such as {"digit":"1","destination":{"type":"extension","id":"101"}}', windows: 'Window JSON, such as {"weekdays":[1],"start":"09:00","end":"17:00"}' }[membersKey.value as 'memberExtensionIds' | 'dialPatterns' | 'trunkIds' | 'entries' | 'windows'] ?? 'Identifier'))
+const membersEmptyMessage = computed(() => membersKey.value === 'memberExtensionIds' ? 'No members yet. A queue needs at least one destination.' : `No ${membersEditorLabel.value.toLowerCase()} yet. This feature needs at least one item.`)
 function openResourceEditor(resource?: PbxResource) {
   editingResourceId.value = resource?.id ?? null
   Object.keys(editorValues).forEach((key) => delete editorValues[key])

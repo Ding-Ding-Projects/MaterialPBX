@@ -10,7 +10,10 @@ final class NativeCompilerRegistry
         if ($kind === 'trunks') return $this->previewTrunk($resource);
         if ($kind === 'inbound-routes') return $this->previewInboundRoute($resource);
         if ($kind === 'outbound-routes') return $this->previewOutboundRoute($resource);
+        if ($kind === 'ivrs') return $this->previewIvr($resource);
         if ($kind === 'queues') return $this->previewQueue($resource);
+        if ($kind === 'voicemail-boxes') return $this->previewVoicemail($resource);
+        if ($kind === 'time-conditions') return $this->previewTimeCondition($resource);
         if ($kind !== 'ring-groups') return $this->unsupported($kind, 'No documented native compiler is registered for this feature.');
         $config = $resource['configuration'] ?? [];
         if (empty($resource['enabled'])) return ['status' => 'remove', 'compiler' => 'ring-group-get-config-v1', 'reason' => 'The disabled ring group requires removal of any prior module-owned output.', 'artifact' => null, 'diff' => [['operation' => 'remove', 'target' => 'ring-groups:' . (string)$resource['id'], 'summary' => 'Remove prior generated output when it exists.']]];
@@ -79,6 +82,27 @@ final class NativeCompilerRegistry
         $artifact = ['schemaVersion' => 1, 'compiler' => 'outbound-route-get-config-v1', 'context' => $context, 'dialPatterns' => array_values(array_map('strval', $patterns)), 'trunkIds' => array_values(array_map('strval', $trunks)), 'emergency' => !empty($config['emergency'])];
         return ['status' => 'compiled', 'compiler' => $artifact['compiler'], 'reason' => 'The outbound route can generate bounded module-owned pattern contexts.', 'artifact' => $artifact, 'diff' => [['operation' => 'replace', 'target' => $context, 'summary' => 'Generate module-owned outbound pattern and trunk-selection contexts.']]];
     }
+    private function previewIvr(array $resource): array
+    {
+        $config = $resource['configuration'] ?? [];
+        if (empty($resource['enabled'])) return ['status' => 'remove', 'compiler' => 'ivr-get-config-v1', 'reason' => 'The disabled IVR requires removal of any prior module-owned output.', 'artifact' => null, 'diff' => [['operation' => 'remove', 'target' => 'ivrs:' . (string)$resource['id'], 'summary' => 'Remove prior generated output when it exists.']]];
+        $entries = $config['entries'] ?? [];
+        if (!is_array($entries) || count($entries) < 1 || count($entries) > 12) return $this->unsupported('ivrs', 'An IVR requires 1 to 12 entries.');
+        $seenDigits = [];
+        foreach ($entries as $entry) {
+            $digit = (string)($entry['digit'] ?? '');
+            if (!preg_match('/^[0-9*#]$/D', $digit) || isset($seenDigits[$digit])) return $this->unsupported('ivrs', 'IVR digits must be unique 0–9, *, or # values.');
+            $seenDigits[$digit] = true;
+            $type = (string)($entry['destination']['type'] ?? '');
+            if (!in_array($type, ['extension', 'ivr', 'queue', 'ring-group', 'voicemail', 'terminate'], true)) return $this->unsupported('ivrs', 'An IVR destination type is unsupported.');
+            if ($type !== 'terminate' && empty($entry['destination']['id'])) return $this->unsupported('ivrs', 'A non-terminate IVR entry requires a destination identifier.');
+        }
+        $timeout = (int)($config['timeoutSeconds'] ?? 0);
+        if ($timeout < 1 || $timeout > 60) return $this->unsupported('ivrs', 'The IVR timeout must be between 1 and 60 seconds.');
+        $context = 'materialpbx-ivr-' . substr(hash('sha256', (string)$resource['id']), 0, 16);
+        $artifact = ['schemaVersion' => 1, 'compiler' => 'ivr-get-config-v1', 'context' => $context, 'announcementId' => (string)($config['announcementId'] ?? ''), 'timeoutSeconds' => $timeout, 'invalidDestination' => ['type' => (string)($config['invalidDestination']['type'] ?? 'terminate'), 'id' => isset($config['invalidDestination']['id']) ? (string)$config['invalidDestination']['id'] : null], 'entries' => array_values(array_map(static fn($entry): array => ['digit' => (string)$entry['digit'], 'destination' => ['type' => (string)$entry['destination']['type'], 'id' => isset($entry['destination']['id']) ? (string)$entry['destination']['id'] : null]], $entries))];
+        return ['status' => 'compiled', 'compiler' => $artifact['compiler'], 'reason' => 'The IVR can generate bounded module-owned key-choice contexts.', 'artifact' => $artifact, 'diff' => [['operation' => 'replace', 'target' => $context, 'summary' => 'Generate the module-owned IVR key-choice context.']]];
+    }
     private function previewQueue(array $resource): array
     {
         $config = $resource['configuration'] ?? [];
@@ -95,5 +119,36 @@ final class NativeCompilerRegistry
         $context = 'materialpbx-queue-' . substr(hash('sha256', (string)$resource['id']), 0, 16);
         $artifact = ['schemaVersion' => 1, 'compiler' => 'queue-get-config-v1', 'context' => $context, 'members' => array_values(array_map('strval', $members)), 'strategy' => $strategies[$strategy], 'timeoutSeconds' => $timeout];
         return ['status' => 'compiled', 'compiler' => $artifact['compiler'], 'reason' => 'The queue can use the bounded module-owned generation hook.', 'artifact' => $artifact, 'diff' => [['operation' => 'replace', 'target' => $context, 'summary' => 'Generate the module-owned queue context.']]];
+    }
+    private function previewVoicemail(array $resource): array
+    {
+        $config = $resource['configuration'] ?? [];
+        if (empty($resource['enabled'])) return ['status' => 'remove', 'compiler' => 'voicemail-get-config-v1', 'reason' => 'The disabled voicemail box requires removal of any prior module-owned output.', 'artifact' => null, 'diff' => [['operation' => 'remove', 'target' => 'voicemail-boxes:' . (string)$resource['id'], 'summary' => 'Remove prior generated output when it exists.']]];
+        $mailbox = (string)($config['mailbox'] ?? '');
+        if (!preg_match('/^[0-9]{2,12}$/D', $mailbox)) return $this->unsupported('voicemail-boxes', 'A mailbox must be a validated 2 to 12 digit numeric number.');
+        $email = isset($config['email']) ? filter_var((string)$config['email'], FILTER_VALIDATE_EMAIL) : true;
+        if ($email === false || (is_string($email) && strlen($email) > 254)) return $this->unsupported('voicemail-boxes', 'The voicemail email address is invalid or too long.');
+        $seconds = (int)($config['maxMessageSeconds'] ?? 0);
+        if ($seconds < 10 || $seconds > 3600) return $this->unsupported('voicemail-boxes', 'Maximum message length must be between 10 and 3600 seconds.');
+        $context = 'materialpbx-vm-' . substr(hash('sha256', (string)$resource['id']), 0, 16);
+        $artifact = ['schemaVersion' => 1, 'compiler' => 'voicemail-get-config-v1', 'context' => $context, 'mailbox' => $mailbox, 'attachAudio' => !empty($config['attachAudio']), 'maxMessageSeconds' => $seconds];
+        return ['status' => 'compiled', 'compiler' => $artifact['compiler'], 'reason' => 'The voicemail box can generate a bounded module-owned context.', 'artifact' => $artifact, 'diff' => [['operation' => 'replace', 'target' => $context, 'summary' => "Generate the module-owned voicemail context for mailbox {$mailbox}."]]];
+    }
+    private function previewTimeCondition(array $resource): array
+    {
+        $config = $resource['configuration'] ?? [];
+        if (empty($resource['enabled'])) return ['status' => 'remove', 'compiler' => 'time-condition-get-config-v1', 'reason' => 'The disabled time condition requires removal of any prior module-owned output.', 'artifact' => null, 'diff' => [['operation' => 'remove', 'target' => 'time-conditions:' . (string)$resource['id'], 'summary' => 'Remove prior generated output when it exists.']]];
+        $windows = $config['windows'] ?? [];
+        if (!is_array($windows) || count($windows) < 1 || count($windows) > 32) return $this->unsupported('time-conditions', 'A time condition requires 1 to 32 windows.');
+        foreach ($windows as $window) {
+            $days = $window['weekdays'] ?? [];
+            if (!is_array($days) || count($days) < 1 || count($days) > 7) return $this->unsupported('time-conditions', 'Each time window needs one to seven weekdays.');
+            foreach ($days as $day) if (!is_numeric($day) || (int)$day < 0 || (int)$day > 6) return $this->unsupported('time-conditions', 'A weekday value is outside Sunday through Saturday.');
+            foreach (['start', 'end'] as $field) if (!is_string($window[$field] ?? null) || !preg_match('/^([01][0-9]|2[0-3]):[0-5][0-9]$/', $window[$field])) return $this->unsupported('time-conditions', 'A time window start or end is invalid.');
+        }
+        $timezone = timezone_open((string)($config['timezone'] ?? '')); if (!$timezone) return $this->unsupported('time-conditions', 'The timezone identifier is invalid.');
+        $context = 'materialpbx-time-' . substr(hash('sha256', (string)$resource['id']), 0, 16);
+        $artifact = ['schemaVersion' => 1, 'compiler' => 'time-condition-get-config-v1', 'context' => $context, 'timezone' => (string)$config['timezone'], 'windows' => array_values(array_map(static fn($window): array => ['weekdays' => array_map('intval', $window['weekdays']), 'start' => (string)$window['start'], 'end' => (string)$window['end']], $windows)), 'matchedDestination' => ['type' => (string)($config['matchedDestination']['type'] ?? 'terminate'), 'id' => isset($config['matchedDestination']['id']) ? (string)$config['matchedDestination']['id'] : null], 'unmatchedDestination' => ['type' => (string)($config['unmatchedDestination']['type'] ?? 'terminate'), 'id' => isset($config['unmatchedDestination']['id']) ? (string)$config['unmatchedDestination']['id'] : null]];
+        return ['status' => 'compiled', 'compiler' => $artifact['compiler'], 'reason' => 'The time condition can generate bounded module-owned schedule contexts.', 'artifact' => $artifact, 'diff' => [['operation' => 'replace', 'target' => $context, 'summary' => 'Generate the module-owned opening-hours schedule context.']]];
     }
 }

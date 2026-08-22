@@ -42,6 +42,15 @@ class Materialpbx extends \FreePBX_Helpers implements \BMO
                     $priority = (int)$index + 1;
                     $ext->add($artifact['context'], $pattern, $priority, new \ext_noop('MaterialPBX generated outbound route pattern'));
                 }
+            } elseif ($compiler === 'ivr-get-config-v1') {
+                $ext->add($artifact['context'], 's', 1, new \ext_noop('MaterialPBX generated IVR'));
+                foreach ($artifact['entries'] as $entry) {
+                    $ext->add($artifact['context'], $entry['digit'], 1, new \ext_noop('IVR choice recorded for live dispatch verification'));
+                }
+            } elseif ($compiler === 'voicemail-get-config-v1') {
+                $ext->add($artifact['context'], $artifact['mailbox'], 1, new \ext_noop('MaterialPBX generated voicemail context'));
+            } elseif ($compiler === 'time-condition-get-config-v1') {
+                $ext->add($artifact['context'], 's', 1, new \ext_noop('MaterialPBX generated time condition schedule'));
             }
         }
     }
