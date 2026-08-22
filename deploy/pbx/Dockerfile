@@ -6,6 +6,7 @@ ARG FREEPBX_INSTALLER_SHA256=afef5e4b480cf545b2035f92068dc2fdd32452989d170a16a84
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       ca-certificates curl systemd systemd-sysv dbus tini gosu jq \
+ && install -d -m 0755 /usr/local/libexec \
  && curl --fail --location --proto '=https' --tlsv1.2 \
       "https://raw.githubusercontent.com/FreePBX/sng_freepbx_debian_install/${FREEPBX_INSTALLER_COMMIT}/sng_freepbx_debian_install.sh" \
       --output /usr/local/libexec/freepbx17-install.sh \
