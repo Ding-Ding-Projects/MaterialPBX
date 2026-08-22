@@ -4,6 +4,8 @@
 
 Phone menus play a recording and route keypad choices to visible destinations.
 
+The call-flow canvas shows greeting, keypad branches, invalid input, timeout, and their verified destinations as connected visual nodes. The typed editor chooses recordings and safe fallbacks without requiring dialplan text.
+
 The guided view presents validated pickers, switches, ranges, and clear suggested defaults. The expert view exposes the underlying Asterisk and FreePBX concepts without making raw configuration text the only path.
 
 ## Configuration

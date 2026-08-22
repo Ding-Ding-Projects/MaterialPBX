@@ -4,6 +4,8 @@
 
 Pairing exchanges bounded invitations, pins identities, verifies connectivity, and creates a normal SIP trunk with visible routing.
 
+The pairing control begins with encrypted private-extension calling and adds failover or shared presence only through explicit typed choices. The other endpoint, certificate, API compatibility, and granted scope must preflight before the interface reports a live pair.
+
 The guided view presents validated pickers, switches, ranges, and clear suggested defaults. The expert view exposes the underlying Asterisk and FreePBX concepts without making raw configuration text the only path.
 
 ## Configuration

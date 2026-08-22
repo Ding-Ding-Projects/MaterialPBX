@@ -4,6 +4,8 @@
 
 Outgoing routes match dialed numbers, normalize them, choose a trunk, and enforce permissions.
 
+The outgoing-call map starts from guided emergency, local, international, and internal patterns before exposing a custom expert pattern. Emergency routes retain the verified-address and provider-approved testing warning.
+
 The guided view presents validated pickers, switches, ranges, and clear suggested defaults. The expert view exposes the underlying Asterisk and FreePBX concepts without making raw configuration text the only path.
 
 ## Configuration

@@ -4,11 +4,13 @@
 
 The public site is for landing, documentation, downloads, status, settings, and links. It is not the PBX runtime.
 
+It does not connect to a control service, load PBX records, or send PBX changes. Feature pages explain the real installed and hosted controls without sample live data. The home page links the verified unsigned MaterialPBX 0.1.0 Windows installer from release `build-3-5147a89`, built from commit `5147a896f8c65b863607378480d5fe46df04e31f`.
+
 The guided view presents validated pickers, switches, ranges, and clear suggested defaults. The expert view exposes the underlying Asterisk and FreePBX concepts without making raw configuration text the only path.
 
 ## Configuration
 
-Open **Landing and documentation site** from navigation or the command palette. Every search field starts in plain-text mode and has its own anchored regular-expression builder. Changes are drafts until a connected control service validates and applies them.
+Open **Landing and documentation site** from navigation or the command palette. Every search field starts in plain-text mode and has its own anchored regular-expression builder. Site settings affect only this visitor's documentation experience.
 
 ## Failure modes
 
@@ -23,7 +25,7 @@ Credentials stay outside renderer storage, logs, exports, history, screenshots, 
 
 ## Verification
 
-This initial ultra-speed implementation was built without tests, lint, type checking, accessibility suites, security suites, smoke checks, or screenshots. The interface labels the disconnected state and does not claim live PBX verification.
+The site is published at <https://ding-ding-projects.github.io/MaterialPBX/> and the verified installer link is live. The release and Pages workflows were restricted to `main` pushes at commit `41d75a5f2eb7cc7ac1426ee12fb0c4a668ed10f9` after unrestricted pushes allowed release-created tags to trigger duplicate releases recursively. Historical duplicate releases remain immutable; no tag or release was deleted. This ultra-speed change ran no tests, lint, type checking, accessibility or security suites, smoke checks, or screenshots.
 
 ## Suggested articles
 

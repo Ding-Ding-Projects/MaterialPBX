@@ -4,6 +4,8 @@
 
 A trunk connects the PBX to a public phone company or another trusted PBX using SIP.
 
+The visual control room separates provider health, encryption, and concurrency choices. It recommends TLS, SRTP, and the purchased simultaneous-call limit while preserving validated expert choices. Live cards appear only for records returned by the control service.
+
 The guided view presents validated pickers, switches, ranges, and clear suggested defaults. The expert view exposes the underlying Asterisk and FreePBX concepts without making raw configuration text the only path.
 
 ## Configuration

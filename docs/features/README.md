@@ -27,6 +27,7 @@ Every feature has its own article. The product surfaces, desktop lab, and public
 - [Live operations](./observability.md)
 - [Security](./security.md)
 - [Guided onboarding](./onboarding.md)
+- [Control-service connection](./control-plane-connection.md)
 - [Appearance and accessibility](./appearance.md)
 - [Tabs, search, and command palette](./navigation.md)
 - [History, exports, and bulk actions](./history-export.md)

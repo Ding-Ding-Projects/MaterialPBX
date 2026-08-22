@@ -4,6 +4,8 @@
 
 Queues hold callers and offer them to eligible team members using an explained distribution strategy.
 
+The waiting-line control explains longest-idle, ring-all, round-robin, and fewest-calls strategies in plain language. Its editor keeps ring time and maximum wait visible so a caller is never trapped behind an unexplained default.
+
 The guided view presents validated pickers, switches, ranges, and clear suggested defaults. The expert view exposes the underlying Asterisk and FreePBX concepts without making raw configuration text the only path.
 
 ## Configuration

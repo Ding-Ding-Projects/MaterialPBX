@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { createDisconnectedClient, type PbxResourceKind } from '@materialpbx/client'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue'
+import { createDisconnectedClient, createHttpClient, MaterialPbxRequestError, type CapabilitySnapshot, type ConnectionState, type HealthSnapshot, type MaterialPbxClient, type PbxResource, type PbxResourceKind } from '@materialpbx/client'
 import { contrastRatio, RAINBOW_SENTINEL, translateColor } from './color'
 import { compileSearch } from './regex'
 
 const props = withDefaults(defineProps<{ surface?: 'web' | 'desktop' | 'site' }>(), { surface: 'web' })
-const client = createDisconnectedClient()
+const client = shallowRef<MaterialPbxClient>(createDisconnectedClient())
 
 type LanguageMode = 'en' | 'zh-HK' | 'bilingual'
 type Dock = 'left' | 'right' | 'top' | 'bottom'
@@ -102,6 +102,11 @@ const tabGroups = ref([{ id: 'daily', name: 'Daily work', color: '#6750A4', coll
 const navSearch = reactive({ query: '', regex: false, flags: 'i' })
 const navRegexOpen = ref(false)
 const navCompiled = computed(() => compileSearch(navSearch))
+const regexDialogOpen = ref(false)
+const regexContext = ref('Search')
+const regexDraft = reactive({ query: '', regex: false, flags: 'i' })
+const regexDraftResult = computed(() => compileSearch(regexDraft))
+function openRegexBuilder(context: string) { regexContext.value = context; regexDialogOpen.value = true }
 const filteredPages = computed(() => pages.filter((item) => navCompiled.value.matcher(`${item.label} ${item.description} ${item.group}`)))
 
 function openPage(id: PageId) {
@@ -116,10 +121,51 @@ function closeTab(id: PageId) {
   if (activePage.value === id) activePage.value = openTabs.value.at(-1) ?? 'home'
 }
 
-const connection = ref<'disconnected' | 'connecting' | 'connected'>('disconnected')
-const serverUrl = ref('https://pbx.example.local')
+const connection = ref<ConnectionState>('disconnected')
+const serverUrl = ref(localStorage.getItem('materialpbx.control-endpoint.v1') ?? '')
+const serverCredential = ref('')
 const connectDialog = ref(false)
+const connectionMessage = ref('No control service has been preflighted in this browser session.')
+const healthSnapshot = ref<HealthSnapshot | null>(null)
+const capabilitySnapshot = ref<CapabilitySnapshot | null>(null)
+const resourceRows = ref<Partial<Record<PbxResourceKind, PbxResource[]>>>({})
+const resourceAccess = ref<Partial<Record<PbxResourceKind, 'unknown' | 'read' | 'write' | 'read-only' | 'denied'>>>({})
+const resourceLoading = ref(false)
 const expertMode = ref(false)
+
+const resourcePageIds = new Set<PbxResourceKind>(['extensions','users','devices','trunks','inbound-routes','outbound-routes','ivrs','queues','conferences','voicemail','recordings','cdr','cel','calendars','presence','parking','paging','announcements','time-conditions','webrtc','paired-servers','backups','observability','security'])
+const isResourcePage = (value: PageId): value is PbxResourceKind => resourcePageIds.has(value as PbxResourceKind)
+const currentAccess = computed(() => isResourcePage(activePage.value) ? resourceAccess.value[activePage.value] ?? 'unknown' : 'unknown')
+const canWriteCurrent = computed(() => currentAccess.value === 'write')
+const canAttemptWriteCurrent = computed(() => !['read-only', 'denied'].includes(currentAccess.value))
+const currentResources = computed(() => isResourcePage(activePage.value) ? resourceRows.value[activePage.value] ?? [] : [])
+const connectionLabel = computed(() => props.surface === 'site' ? 'Documentation site' : ({ disconnected: 'Disconnected', connecting: 'Checking server', connected: 'Live connection', degraded: 'Live with warnings', offline: 'Server offline', 'permission-denied': 'Permission needed', incompatible: 'Incompatible server' }[connection.value]))
+const connectionColor = computed(() => props.surface === 'site' ? 'info' : ({ connected: 'success', degraded: 'warning', connecting: 'info', disconnected: 'warning', offline: 'error', 'permission-denied': 'warning', incompatible: 'error' }[connection.value]))
+
+async function loadResources(kind: PbxResourceKind) {
+  if (!['connected', 'degraded'].includes(connection.value)) return
+  resourceLoading.value = true
+  try { resourceRows.value[kind] = await client.value.list(kind); if (resourceAccess.value[kind] !== 'write') resourceAccess.value[kind] = 'read' }
+  catch (error) { if (error instanceof MaterialPbxRequestError && error.state === 'permission-denied') resourceAccess.value[kind] = 'denied'; notify('Could not load PBX records', error instanceof Error ? error.message : 'The server returned an unreadable resource list.', error instanceof MaterialPbxRequestError && error.state === 'permission-denied' ? 'warning' : 'error') }
+  finally { resourceLoading.value = false }
+}
+
+async function runPreflight() {
+  connection.value = 'connecting'; connectionMessage.value = 'Checking the control service, API compatibility, permissions, and PBX health.'
+  try { client.value = createHttpClient(serverUrl.value, serverCredential.value); serverCredential.value = '' }
+  catch (error) { connection.value = 'incompatible'; connectionMessage.value = error instanceof Error ? error.message : 'Enter a valid HTTPS endpoint.'; return }
+  const result = await client.value.preflight(); connection.value = result.state; connectionMessage.value = result.message
+  if (!result.ok) { healthSnapshot.value = null; capabilitySnapshot.value = null; notify('Connection preflight did not pass', result.message, result.state === 'permission-denied' ? 'warning' : 'error'); return }
+  healthSnapshot.value = result.health ?? null; capabilitySnapshot.value = result.capabilities ?? null
+  localStorage.setItem('materialpbx.control-endpoint.v1', serverUrl.value.trim().replace(/\/$/, ''))
+  connectDialog.value = false; notify('Control service connected', `${result.health?.serverName ?? 'PBX'} returned capability registry schema ${result.capabilities?.schemaVersion ?? 'unknown'} with ${result.capabilities?.capabilities.length ?? 0} evidence-backed entries.`, result.state === 'degraded' ? 'warning' : 'success')
+  if (isResourcePage(activePage.value)) await loadResources(activePage.value)
+}
+
+function disconnectServer() {
+  client.value = createDisconnectedClient(); connection.value = 'disconnected'; connectionMessage.value = 'Disconnected by this user. The saved endpoint remains available for the next preflight.'; healthSnapshot.value = null; capabilitySnapshot.value = null; resourceRows.value = {}; resourceAccess.value = {}; serverCredential.value = ''; notify('Control service disconnected', 'The in-memory credential was discarded. No live PBX changes can be made until preflight succeeds again.', 'info')
+}
+function clearSavedEndpoint() { localStorage.removeItem('materialpbx.control-endpoint.v1'); serverUrl.value = ''; notify('Saved endpoint cleared', 'Only the non-secret server address was removed. No credential was stored here.', 'info') }
 
 const onboardingStep = ref(1)
 const onboarding = reactive({
@@ -143,7 +189,54 @@ const resourceForms: Record<string, Array<{ key: string; label: string; type: st
     { key: 'media', label: 'Voice encryption', type: 'select', options: ['SRTP (recommended)', 'Provider default', 'RTP'], help: 'SRTP encrypts the voice stream when both sides support it.' },
     { key: 'concurrency', label: 'Maximum simultaneous calls', type: 'slider', help: 'Prevents this connection from accepting more calls than purchased.' },
   ],
+  'inbound-routes': [
+    { key: 'name', label: 'Route name', type: 'text', help: 'A plain label, such as Main number during office hours.' },
+    { key: 'publicNumber', label: 'Public phone number', type: 'text', help: 'Use the full country code, such as +14165550100.' },
+    { key: 'destination', label: 'First destination', type: 'select', options: ['Queue','Extension','Phone menu','Announcement','Voicemail'], help: 'The first place an incoming call should go.' },
+    { key: 'enabled', label: 'Accept calls on this route', type: 'switch', help: 'Turn the route off without deleting its call plan.' },
+  ],
+  'outbound-routes': [
+    { key: 'name', label: 'Route name', type: 'text', help: 'A label such as Canada and US calls.' },
+    { key: 'pattern', label: 'Number pattern', type: 'select', options: ['Emergency only','Local and long distance','International','Internal extensions','Custom expert pattern'], help: 'Choose a guided pattern before using expert syntax.' },
+    { key: 'provider', label: 'Preferred phone company', type: 'select', options: ['First healthy trunk','Ask me after trunks load'], help: 'The server validates this choice against live trunks.' },
+    { key: 'emergency', label: 'Emergency route', type: 'switch', help: 'Emergency routes require a verified provider address and approved test procedure.' },
+  ],
+  ivrs: [
+    { key: 'name', label: 'Menu name', type: 'text', help: 'A caller-friendly purpose, such as Main welcome menu.' },
+    { key: 'recording', label: 'Greeting', type: 'select', options: ['Choose a verified recording','Record a new greeting'], help: 'Callers hear this before choosing a key.' },
+    { key: 'timeout', label: 'Seconds to wait', type: 'slider', help: 'How long the menu waits before its no-answer destination.' },
+    { key: 'invalidDestination', label: 'Invalid key destination', type: 'select', options: ['Repeat menu','Operator extension','Voicemail','Hang up'], help: 'The safe next step after an unavailable key.' },
+  ],
+  queues: [
+    { key: 'name', label: 'Waiting-line name', type: 'text', help: 'A clear team or purpose, such as Customer care.' },
+    { key: 'strategy', label: 'Who rings next', type: 'select', options: ['Longest idle (recommended)','Ring everyone','Round robin','Fewest calls'], help: 'The server maps this plain choice to the queue strategy.' },
+    { key: 'ringSeconds', label: 'Seconds per attempt', type: 'slider', help: 'How long each available phone rings.' },
+    { key: 'maxWait', label: 'Maximum wait', type: 'select', options: ['5 minutes','10 minutes','20 minutes','No fixed limit'], help: 'After this, send the caller to the fallback destination.' },
+  ],
+  observability: [
+    { key: 'refresh', label: 'Refresh interval', type: 'select', options: ['10 seconds','30 seconds (recommended)','1 minute','Manual'], help: 'Slower refresh uses fewer server resources.' },
+    { key: 'severity', label: 'Minimum event severity', type: 'select', options: ['Information','Warning','Error'], help: 'Filters the live operations feed without hiding PBX health.' },
+    { key: 'channels', label: 'Show active channels', type: 'switch', help: 'Lists current call legs only when the server grants permission.' },
+  ],
+  'paired-servers': [
+    { key: 'name', label: 'Other PBX name', type: 'text', help: 'A recognizable name for the other server.' },
+    { key: 'endpoint', label: 'Other PBX HTTPS address', type: 'text', help: 'The pairing preflight verifies its certificate and compatible API.' },
+    { key: 'mode', label: 'Pairing purpose', type: 'select', options: ['Private extension calling','Failover routes','Shared presence','Limited custom pairing'], help: 'Start with the narrowest capability set.' },
+    { key: 'tls', label: 'Require encrypted signaling', type: 'switch', help: 'Recommended and enabled by default.' },
+  ],
 }
+
+const visualFeatureKinds = new Set<PbxResourceKind>(['extensions','trunks','inbound-routes','outbound-routes','ivrs','queues','observability','paired-servers'])
+const visualFeature = computed(() => isResourcePage(activePage.value) && visualFeatureKinds.has(activePage.value) ? ({
+  extensions: { eyebrow: 'PEOPLE AND PHONES', lead: 'Give each person a short number and decide which real devices ring.', default: 'Suggested start: three-digit extensions beginning at 100, voicemail on, 25-second ring time.', icon: '☎' },
+  trunks: { eyebrow: 'PHONE COMPANY LINKS', lead: 'See which outside calling connections are healthy, encrypted, and within their call limits.', default: 'Suggested start: TLS and SRTP when the provider supports them, with the purchased concurrency limit.', icon: '⇄' },
+  'inbound-routes': { eyebrow: 'INCOMING CALL MAP', lead: 'Match each public number to the first destination callers should reach.', default: 'Suggested start: send the main number to a staffed queue, with voicemail as the after-hours fallback.', icon: '↘' },
+  'outbound-routes': { eyebrow: 'OUTGOING CALL MAP', lead: 'Choose which healthy phone-company connection carries each kind of number.', default: 'Suggested start: separate emergency, local, and international rules so permissions stay reviewable.', icon: '↗' },
+  ivrs: { eyebrow: 'VISUAL CALL-FLOW CANVAS', lead: 'Build the caller journey from greeting to key choices and safe fallbacks.', default: 'Suggested start: operator on 0, repeat once after an invalid key, then use a clear fallback.', icon: '⑴' },
+  queues: { eyebrow: 'WAITING-LINE CONTROL', lead: 'Balance caller wait time, available people, and a humane fallback.', default: 'Suggested start: longest-idle strategy, 20-second attempts, and a visible maximum wait.', icon: '≋' },
+  observability: { eyebrow: 'LIVE OPERATIONS', lead: 'Read PBX health, active calls, registrations, warnings, and the exact time they were checked.', default: 'This view is read-only unless the server explicitly grants an action capability.', icon: '◉' },
+  'paired-servers': { eyebrow: 'SERVER PAIRING', lead: 'Connect another compatible PBX with the smallest useful permission set.', default: 'Suggested start: encrypted private-extension calling only; add failover or presence after verification.', icon: '⛓' },
+}[activePage.value] as { eyebrow: string; lead: string; default: string; icon: string }) : null)
 
 const genericForm = [
   { key: 'name', label: 'Name', type: 'text', help: 'A clear label shown throughout MaterialPBX.' },
@@ -151,15 +244,33 @@ const genericForm = [
   { key: 'destination', label: 'Next destination', type: 'select', options: ['Extension', 'Queue', 'Voicemail', 'Announcement', 'Hang up'], help: 'What should happen after this step.' },
 ]
 const editorOpen = ref(false)
+const editingResourceId = ref<string | null>(null)
 const editorValues = reactive<Record<string, string | number | boolean>>({ name: '', enabled: true, ringSeconds: 25, concurrency: 4 })
 const currentForm = computed(() => resourceForms[activePage.value] ?? genericForm)
-function saveEditor() {
-  if (connection.value !== 'connected') {
-    notify('Saved locally only', 'No PBX is connected. This draft was not applied to a live phone system.', 'warning')
-  }
-  recordHistory(`Updated ${page.value.label} draft`)
-  editorOpen.value = false
+function openResourceEditor(resource?: PbxResource) {
+  editingResourceId.value = resource?.id ?? null
+  Object.keys(editorValues).forEach((key) => delete editorValues[key])
+  Object.assign(editorValues, resource?.details ?? {}, { name: resource?.name ?? '', enabled: resource?.enabled ?? true, ringSeconds: resource?.details?.ringSeconds ?? 25, concurrency: resource?.details?.concurrency ?? 4, tls: resource?.details?.tls ?? true })
+  editorOpen.value = true
 }
+async function saveEditor() {
+  if (!isResourcePage(activePage.value)) { recordHistory(`Updated ${page.value.label} local draft`); editorOpen.value = false; return }
+  const name = String(editorValues.name || editorValues.number || `${page.value.label} draft`).trim()
+  const resource: PbxResource = { id: editingResourceId.value ?? `draft-${crypto.randomUUID()}`, kind: activePage.value, name, summary: page.value.description, enabled: editorValues.enabled !== false, tags: [], updatedAt: new Date().toISOString(), details: { ...editorValues } }
+  if (!['connected', 'degraded'].includes(connection.value)) { recordHistory(`Saved ${page.value.label} local draft`); notify('Saved locally only', 'No compatible PBX connection is live. This draft was not sent to a phone system.', 'warning'); editorOpen.value = false; return }
+  if (!canAttemptWriteCurrent.value) { notify('Read-only server permission', `A previous request was refused for ${page.value.label}. No change was sent.`, 'warning'); return }
+  const result = await client.value.save(resource)
+  if (!result.ok) { if (result.state === 'permission-denied') resourceAccess.value[activePage.value] = currentAccess.value === 'read' ? 'read-only' : 'denied'; notify('PBX change was not applied', result.message, result.state === 'permission-denied' ? 'warning' : 'error'); return }
+  resourceAccess.value[activePage.value] = 'write'; await loadResources(activePage.value); recordHistory(`Applied ${page.value.label} change through the control service`); notify('PBX change confirmed', result.message, 'success'); editorOpen.value = false
+}
+
+async function validateOnboardingTest() {
+  if (!onboarding.emergencyConfirmed || !onboarding.testDestination) return notify('More information needed', 'Confirm the emergency-calling policy and enter a normal test destination you control.', 'warning')
+  const result = await client.value.validateTestCall(onboarding.testDestination)
+  notify(result.ok ? 'Normal test destination validated' : 'Test validation did not pass', result.message, result.ok ? 'success' : 'error')
+}
+
+watch(activePage, (value) => { if (isResourcePage(value)) void loadResources(value) })
 
 interface Notice { id: number; title: string; body: string; level: 'info' | 'success' | 'warning' | 'error'; at: string }
 const notices = ref<Notice[]>([])
@@ -219,6 +330,7 @@ function createTicket() {
   tickets.value.unshift(ticket); localStorage.setItem('materialpbx.tickets.v1', JSON.stringify(tickets.value)); ticketDescription.value = ''; recordHistory(`Created local support ticket ${ticket.id}`)
 }
 const scheduleRules = ref([{ id: 'work-hours', label: 'Work hours', enabled: false, days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], start: '09:00', end: '17:00', source: 'Local settings' }])
+function addScheduleRule() { scheduleRules.value.push({ id: crypto.randomUUID(), label: `Schedule ${scheduleRules.value.length + 1}`, enabled: false, days: ['Mon','Tue','Wed','Thu','Fri'], start: '09:00', end: '17:00', source: 'Local settings' }); recordHistory('Added a scheduled settings rule') }
 const customLogo = ref<string>('')
 function loadLogo(event: Event) {
   const file = (event.target as HTMLInputElement).files?.[0]
@@ -320,7 +432,7 @@ onBeforeUnmount(() => {
         <v-avatar color="primary" rounded="lg"><v-img v-if="customLogo" :src="customLogo" alt="Custom MaterialPBX logo"/><span v-else aria-hidden="true">M</span></v-avatar>
       </template>
       <v-app-bar-title>{{ settings.appName }}</v-app-bar-title>
-      <v-chip color="warning" variant="tonal" prepend-icon="mdi-lan-disconnect">Disconnected</v-chip>
+      <v-chip :color="connectionColor" variant="tonal" :prepend-icon="connection === 'connected' ? 'mdi-lan-connect' : connection === 'connecting' ? 'mdi-progress-clock' : 'mdi-lan-disconnect'">{{ connectionLabel }}</v-chip>
       <v-btn icon="mdi-bell-outline" aria-label="Open notifications" @click="openPage('notifications')" />
       <v-btn icon="mdi-magnify" aria-label="Open command palette, Ctrl Shift F" @click="paletteOpen = true" />
       <v-btn icon="mdi-cog-outline" aria-label="Open settings" @click="openPage('settings')" />
@@ -356,16 +468,16 @@ onBeforeUnmount(() => {
         <button v-for="tab in openTabs" :key="tab" role="tab" :aria-selected="activePage === tab" :class="['tab-button', { active: activePage === tab }]" @click="openPage(tab)" @contextmenu.prevent="editAppearance(`${pages.find(item => item.id === tab)?.label} tab`)" @click.middle="closeTab(tab)">
           <span>{{ pages.find(item => item.id === tab)?.label }}</span><span v-if="pinnedTabs.includes(tab)" aria-label="Pinned">●</span><button v-else aria-label="Close tab" @click.stop="closeTab(tab)">×</button>
         </button>
-        <v-menu><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-dots-horizontal" size="small" aria-label="Tab actions" /></template><v-list><v-list-item title="Search this tab strip…"/><v-list-item title="Search all tabs…"/><v-list-item title="Search groups…"/><v-list-item title="Close tabs containing text…"/><v-list-item title="Close tabs not containing text…"/></v-list></v-menu>
+        <v-menu><template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" icon="mdi-dots-horizontal" size="small" aria-label="Tab actions" /></template><v-list><v-list-item title="Search this tab strip…" @click="paletteOpen=true"/><v-list-item title="Search all tabs…" @click="paletteOpen=true"/><v-list-item title="Search groups…" @click="paletteOpen=true"/><v-list-item title="Close tabs containing text…" disabled subtitle="Bulk close is unavailable until its review preview is implemented."/><v-list-item title="Close tabs not containing text…" disabled subtitle="Bulk close is unavailable until its review preview is implemented."/></v-list></v-menu>
       </div>
 
       <v-container fluid class="content" :class="{ 'focus-mode': settings.adhdFocus }">
         <v-alert v-if="props.surface === 'site'" type="info" variant="tonal" prominent class="mb-4" title="This is the MaterialPBX landing and documentation site">
           This site explains the product, provides documentation, status and settings for this visitor, and links verified downloads when they exist. It is not the primary phone-system application, does not control a PBX, and does not imitate a live PBX in the browser.
         </v-alert>
-        <v-alert type="warning" variant="tonal" prominent class="mb-4" title="No PBX is connected">
-          You can explore every control and save local drafts. Nothing shown here is live PBX data, and no change will be applied until a server connection succeeds.
-          <template #append><v-btn variant="flat" @click="connectDialog = true">Connect a server</v-btn></template>
+        <v-alert v-else :type="connectionColor as any" variant="tonal" prominent class="mb-4" :title="connectionLabel">
+          {{ connectionMessage }}
+          <template #append><div class="d-flex ga-2"><v-btn v-if="!['connected','degraded'].includes(connection)" variant="flat" @click="connectDialog = true">Connect a server</v-btn><v-btn v-else variant="text" @click="disconnectServer">Disconnect</v-btn></div></template>
         </v-alert>
 
         <v-card v-if="settings.adhdOneThing" class="mb-4 pa-4" color="secondary-container" variant="flat"><v-text-field v-model="settings.nextAction" label="My one current next action" hint="This is chosen by you and stays after a restart." persistent-hint /></v-card>
@@ -374,10 +486,10 @@ onBeforeUnmount(() => {
         <template v-if="activePage === 'home'">
           <div class="headline-row"><div><p class="eyebrow">CONTROL CENTER</p><h1>Your phone system, explained</h1><p>MaterialPBX turns FreePBX and Asterisk features into guided, visual workflows. Start with a safe setup or open an expert tool.</p></div><v-btn color="primary" size="large" @click="openPage('onboarding')">Start guided setup</v-btn></div>
           <div class="metric-grid">
-            <v-card v-for="metric in [{label:'Active calls',value:'—',help:'Requires a live connection'},{label:'Registered phones',value:'—',help:'Requires a live connection'},{label:'Security notices',value:'1',help:'Disconnected state'},{label:'Last verified backup',value:'Never',help:'Connect a server to check'}]" :key="metric.label" class="pa-5"><p>{{ metric.label }}</p><strong>{{ metric.value }}</strong><small>{{ metric.help }}</small></v-card>
+            <v-card v-for="metric in [{label:'Active calls',value:healthSnapshot?.activeCalls ?? '—',help:healthSnapshot ? 'Not reported by the system-status endpoint' : 'Requires a live connection'},{label:'Registered phones',value:healthSnapshot?.registeredDevices ?? '—',help:healthSnapshot?.serverName ?? 'Requires a live connection'},{label:'Server warnings',value:healthSnapshot?.warnings.length ?? '—',help:healthSnapshot ? (healthSnapshot.warnings[0] ?? `Checked ${healthSnapshot.checkedAt}`) : 'No live health response'},{label:'Evidence-backed capabilities',value:capabilitySnapshot?.capabilities.length ?? '—',help:capabilitySnapshot ? `Schema ${capabilitySnapshot.schemaVersion} · ${capabilitySnapshot.generatedAt}` : 'Run connection preflight'}]" :key="metric.label" class="pa-5"><p>{{ metric.label }}</p><strong>{{ metric.value }}</strong><small>{{ metric.help }}</small></v-card>
           </div>
           <h2 class="mt-8">Common tasks</h2>
-          <div class="task-grid"><v-card v-for="item in pages.filter(item => ['extensions','trunks','inbound-routes','queues','backups','security'].includes(item.id))" :key="item.id" class="pa-5 task-card" tabindex="0" @click="openPage(item.id)" @keydown.enter="openPage(item.id)"><h3>{{ item.label }}</h3><p>{{ item.description }}</p><v-btn variant="text">Open</v-btn></v-card></div>
+          <div class="task-grid"><v-card v-for="item in pages.filter(item => ['extensions','trunks','inbound-routes','queues','backups','security'].includes(item.id))" :key="item.id" class="pa-5 task-card" tabindex="0" @click="openPage(item.id)" @keydown.enter="openPage(item.id)"><h3>{{ item.label }}</h3><p>{{ item.description }}</p><v-btn variant="text" @click.stop="openPage(item.id)">Open</v-btn></v-card></div>
           <v-card v-if="props.surface === 'site'" class="mt-8 pa-6" variant="tonal"><h2>Downloads</h2><p>Download the verified unsigned Windows Squirrel installer built from commit <code>5147a896f8c65b863607378480d5fe46df04e31f</code>. Windows may show an unknown-publisher or SmartScreen warning because code signing is intentionally disabled.</p><v-btn href="https://github.com/Ding-Ding-Projects/MaterialPBX/releases/download/build-3-5147a89/MaterialPBX-0.1.0-x64-Setup.exe" target="_blank" rel="noopener">Download MaterialPBX 0.1.0 for Windows</v-btn><p class="mt-4">For production hosting, the one-click deployment guide uses the repository’s Docker Compose files and keeps telephony services on the dedicated Linux host.</p></v-card>
         </template>
 
@@ -398,20 +510,20 @@ onBeforeUnmount(() => {
             </v-stepper-window>
             <v-stepper-actions :disabled="onboardingStep === 1 ? 'prev' : onboardingStep === 6 ? 'next' : false" @click:prev="onboardingStep--" @click:next="onboardingStep++" />
           </v-stepper>
-          <div class="d-flex justify-end ga-3 mt-4"><v-btn variant="tonal" @click="recordHistory('Saved onboarding draft'); notify('Draft saved','The onboarding draft is stored locally.','success')">Save local draft</v-btn><v-btn color="primary" :disabled="connection !== 'connected' || !onboarding.emergencyConfirmed">Validate and apply</v-btn></div>
+          <div class="d-flex justify-end ga-3 mt-4"><v-btn variant="tonal" @click="recordHistory('Saved onboarding draft'); notify('Draft saved','The onboarding draft is stored locally.','success')">Save local draft</v-btn><v-btn color="primary" :disabled="!['connected','degraded'].includes(connection) || !onboarding.emergencyConfirmed || !onboarding.testDestination" @click="validateOnboardingTest">Validate normal test destination</v-btn></div>
         </template>
 
         <template v-else-if="activePage === 'settings'">
           <p class="eyebrow">SETTINGS</p><h1>Make every surface work your way</h1>
-          <div class="settings-search"><v-text-field label="Search settings" prepend-inner-icon="mdi-magnify"/><v-btn icon="mdi-regex" aria-label="Open regex builder for settings search"/></div>
+          <div class="settings-search"><v-text-field label="Search settings" prepend-inner-icon="mdi-magnify"/><v-btn icon="mdi-regex" aria-label="Open regex builder for settings search" @click="openRegexBuilder('Settings search')"/></div>
           <v-tabs v-model="settingsTab" show-arrows><v-tab v-for="tab in ['language','appearance','accessibility','schedules','privacy','advanced']" :key="tab" :value="tab">{{ tab }}</v-tab></v-tabs>
           <v-window v-model="settingsTab" class="settings-window">
             <v-window-item value="language"><section><h2>Language and tone</h2><v-select v-if="!settings.schoolMode" v-model="settings.language" label="Language" :items="[{title:'English',value:'en'},{title:'Playful Hong Kong-style Cantonese',value:'zh-HK'},{title:'Bilingual',value:'bilingual'}]"/><v-slider v-if="!settings.schoolMode" v-model="settings.funnyEnglish" min="1" max="5" step="1" thumb-label label="English funny level"/><v-slider v-if="!settings.schoolMode" v-model="settings.funnyCantonese" min="1" max="5" step="1" thumb-label label="Cantonese funny level"/><p v-if="!settings.schoolMode">Both funny levels default to 5 and style every message, including warnings and errors. Facts and choices never change.</p><v-switch v-model="settings.dialogEmoji" label="Show emojis in dialogs and message boxes"/><v-divider/><v-switch v-model="settings.schoolMode" :label="settings.schoolName"/><v-text-field v-model="settings.schoolName" label="Name of this mode"/><p>While active, this mode uses English and removes Cantonese, bilingual, funny-level, personal-vocabulary, and dim-sum capabilities from user-facing surfaces. Turning it off requires the shared local unlock method.</p></section></v-window-item>
             <v-window-item value="appearance"><section><h2>Appearance</h2><v-select v-model="settings.theme" label="Theme" :items="['system','light','dark']"/><v-select v-model="settings.density" label="Density" :items="['comfortable','compact','spacious']"/><div class="color-grid"><v-color-picker v-model="settings.accent" mode="hexa" show-swatches/><div><v-text-field v-model="settings.accent" label="Accent HEX or HEX8"/><v-switch v-model="settings.rainbow" label="Animated rainbow color"/><v-slider v-if="settings.rainbow" v-model="settings.rainbowSpeed" min="1" max="5" step="1" label="Rainbow speed level" thumb-label/><p>Contrast against the current surface: {{ contrast }}:1</p><v-list density="compact"><v-list-item v-for="row in accentRepresentations" :key="row[0]" :title="row[0]" :subtitle="row[1]"/></v-list></div></div><v-text-field v-model="settings.fontFamily" label="Interface font family"/><v-slider v-model="settings.fontScale" min="0.8" max="1.6" step="0.05" label="Font size scale" thumb-label/><v-text-field v-model="settings.appName" label="Displayed application name" hint="This does not change package identity, data folders, installer identity, or update feeds." persistent-hint/><v-select v-model="settings.dock" label="Tab and navigation dock" :items="['left','right','top','bottom']"/><v-btn @click="editAppearance('Settings page')">Edit this page appearance…</v-btn><v-file-input label="Custom application logo" accept="image/png,image/jpeg,image/webp,image/svg+xml" @change="loadLogo"/></section></v-window-item>
             <v-window-item value="accessibility"><section><h2>Accessibility and attention accommodations</h2><v-switch v-model="settings.reducedMotion" label="Reduce motion"/><v-switch v-model="settings.adhdFocus" label="Focus: emphasize the current work"/><v-switch v-model="settings.adhdLowStim" label="Low stimulation: quieter color and motion"/><v-switch v-model="settings.adhdTime" label="Time awareness: show elapsed time"/><v-switch v-model="settings.adhdOneThing" label="One thing at a time: keep one chosen next action"/><v-switch v-model="settings.adhdMomentum" label="Momentum: offer a gentle dismissible prompt after inactivity"/><p>These are interface accommodations, not medical assessment or advice. Every mode is off by default and can be combined.</p><v-divider/><h3>Narrator</h3><v-switch v-model="settings.narrator" label="Narrate important events"/><v-select v-model="settings.narratorLanguage" label="Narrated language" :items="[{title:'English',value:'en'},{title:'Cantonese',value:'zh-HK'},{title:'Both, English then Cantonese',value:'both'}]"/><v-select v-model="settings.englishVoice" label="English voice" :items="[{title:'Choose automatically',value:''},...voices.filter(v=>v.lang.startsWith('en')).map(v=>({title:`${v.name} · ${v.lang}${v.localService?'':' · network-backed'}`,value:v.voiceURI}))]"/><v-select v-model="settings.cantoneseVoice" label="Cantonese voice" :items="[{title:'Choose automatically',value:''},...voices.filter(v=>/zh.*(HK|Hant)/i.test(v.lang)).map(v=>({title:`${v.name} · ${v.lang}${v.localService?'':' · network-backed'}`,value:v.voiceURI}))]"/><v-slider v-model="settings.speechRate" min="0.5" max="2" step="0.1" label="Speech rate"/><v-slider v-model="settings.speechPitch" min="0" max="2" step="0.1" label="Speech pitch"/><v-btn @click="narrate('MaterialPBX narrator preview. Your selected voice is ready.')">Preview voice</v-btn></section></v-window-item>
-            <v-window-item value="schedules"><section><h2>Scheduled settings</h2><p>Rules use your local timezone. Cross-midnight rules continue into the next day. Later rules win when two enabled rules overlap.</p><v-card v-for="rule in scheduleRules" :key="rule.id" class="pa-4 mb-3"><v-switch v-model="rule.enabled" :label="rule.label"/><div class="schedule-grid"><v-select v-model="rule.days" label="Days" multiple chips :items="['Mon','Tue','Wed','Thu','Fri','Sat','Sun']"/><v-text-field v-model="rule.start" type="time" label="Start time"/><v-text-field v-model="rule.end" type="time" label="End time"/><v-select v-model="rule.source" label="Source" :items="['Local settings','Validated HTTPS API','Home Assistant boolean entity']"/></div></v-card><v-btn prepend-icon="mdi-plus">Add rule</v-btn></section></v-window-item>
+            <v-window-item value="schedules"><section><h2>Scheduled settings</h2><p>Rules use your local timezone. Cross-midnight rules continue into the next day. Later rules win when two enabled rules overlap.</p><v-card v-for="rule in scheduleRules" :key="rule.id" class="pa-4 mb-3"><v-switch v-model="rule.enabled" :label="rule.label"/><div class="schedule-grid"><v-select v-model="rule.days" label="Days" multiple chips :items="['Mon','Tue','Wed','Thu','Fri','Sat','Sun']"/><v-text-field v-model="rule.start" type="time" label="Start time"/><v-text-field v-model="rule.end" type="time" label="End time"/><v-select v-model="rule.source" label="Source" :items="['Local settings','Validated HTTPS API','Home Assistant boolean entity']"/></div></v-card><v-btn prepend-icon="mdi-plus" @click="addScheduleRule">Add rule</v-btn></section></v-window-item>
             <v-window-item value="privacy"><section><h2>Local privacy</h2><v-file-input v-if="!settings.schoolMode" label="Personal vocabulary JSON" accept="application/json" @change="loadVocabulary"/><p v-if="!settings.schoolMode">{{ vocabularyStatus }}</p><v-btn v-if="!settings.schoolMode" variant="tonal" @click="localStorage.removeItem('materialpbx.personal-vocabulary.v1'); vocabularyStatus='No personal vocabulary file loaded'">Clear personal vocabulary</v-btn><p>Personal vocabulary parsing and caching stay on this device and are excluded from exports, logs, analytics, crash reports, history, and synchronization.</p><v-divider/><h3>Local history</h3><p>Settings and user-managed records are appended to local history. Credentials and authenticator secrets are never stored as plaintext history.</p><v-btn @click="openPage('history')">Open history</v-btn></section></v-window-item>
-            <v-window-item value="advanced"><section><h2>Advanced controls</h2><v-switch v-model="expertMode" label="Show expert PBX controls"/><p>Expert controls expose direct Asterisk concepts with explanations and safe defaults. Raw configuration is never the only path.</p><v-select label="External editor" :items="['Visual Studio Code (auto-detect)','Visual Studio Code Insiders','Choose an executable…']"/><v-btn :disabled="props.surface !== 'desktop'" :title="props.surface !== 'desktop' ? 'Available in the desktop app' : undefined">Open current export in Visual Studio Code</v-btn><v-divider/><h3>Universal exclusions for this project</h3><p>The local Ollama suite manager and universal file converter are intentionally not included, by explicit project direction.</p></section></v-window-item>
+            <v-window-item value="advanced"><section><h2>Advanced controls</h2><v-switch v-model="expertMode" label="Show expert PBX controls"/><p>Expert controls expose direct Asterisk concepts with explanations and safe defaults. Raw configuration is never the only path.</p><v-select label="External editor" :items="['Visual Studio Code (auto-detect)','Visual Studio Code Insiders','Choose an executable…']"/><v-btn disabled title="External-editor process launch is not connected in this build.">Open current export in Visual Studio Code</v-btn><v-divider/><h3>Universal exclusions for this project</h3><p>The local Ollama suite manager and universal file converter are intentionally not included, by explicit project direction.</p></section></v-window-item>
           </v-window>
         </template>
 
@@ -420,15 +532,15 @@ onBeforeUnmount(() => {
         </template>
 
         <template v-else-if="activePage === 'history'">
-          <p class="eyebrow">LOCAL HISTORY</p><h1>Review changes without rewriting the past</h1><div class="toolbar"><v-text-field type="date" label="From date"/><v-select label="Action" multiple :items="[...new Set(history.map(item=>item.action))]"/><v-text-field label="Search history"/><v-btn icon="mdi-regex" aria-label="Open regex builder for history search"/></div><v-timeline side="end"><v-timeline-item v-for="entry in history" :key="entry.id" dot-color="primary"><strong>{{ entry.action }}</strong><p>{{ entry.at }}</p><v-btn variant="text">Restore as a new revision</v-btn></v-timeline-item></v-timeline><v-card v-if="!history.length" class="pa-8 text-center">No local revisions yet.</v-card>
+          <p class="eyebrow">LOCAL HISTORY</p><h1>Review changes without rewriting the past</h1><div class="toolbar"><v-text-field type="date" label="From date"/><v-select label="Action" multiple :items="[...new Set(history.map(item=>item.action))]"/><v-text-field label="Search history"/><v-btn icon="mdi-regex" aria-label="Open regex builder for history search" @click="openRegexBuilder('History search')"/></div><v-timeline side="end"><v-timeline-item v-for="entry in history" :key="entry.id" dot-color="primary"><strong>{{ entry.action }}</strong><p>{{ entry.at }}</p><v-btn variant="text" disabled title="This entry records an action but does not contain a restorable snapshot.">Restore as a new revision</v-btn></v-timeline-item></v-timeline><v-card v-if="!history.length" class="pa-8 text-center">No local revisions yet.</v-card>
         </template>
 
         <template v-else-if="activePage === 'authenticator'">
-          <p class="eyebrow">LOCAL AUTHENTICATOR</p><h1>Time-based codes without cloud sync</h1><v-alert :type="supportsDesktopVault ? 'info':'warning'" variant="tonal">{{ supportsDesktopVault ? 'Secrets are stored in the operating-system credential vault. Ordinary exports omit them.' : 'This browser surface cannot use the operating-system credential vault. Add and reveal codes only in the desktop app.' }}</v-alert><div class="toolbar"><v-text-field label="Search issuer or account"/><v-btn icon="mdi-regex" aria-label="Open regex builder for authenticator search"/><v-btn color="primary" :disabled="!supportsDesktopVault">Add account</v-btn></div><v-card class="pa-8 text-center">No authenticator accounts registered.</v-card>
+          <p class="eyebrow">LOCAL AUTHENTICATOR</p><h1>Time-based codes without cloud sync</h1><v-alert :type="supportsDesktopVault ? 'info':'warning'" variant="tonal">{{ supportsDesktopVault ? 'The credential-vault registration adapter is not connected in this build, so account creation stays disabled.' : 'This browser surface cannot use the operating-system credential vault. Add and reveal codes only after the desktop adapter is implemented.' }}</v-alert><div class="toolbar"><v-text-field label="Search issuer or account"/><v-btn icon="mdi-regex" aria-label="Open regex builder for authenticator search" @click="openRegexBuilder('Authenticator search')"/><v-btn color="primary" disabled title="Credential-vault registration is not connected in this build.">Add account</v-btn></div><v-card class="pa-8 text-center">No authenticator accounts registered.</v-card>
         </template>
 
         <template v-else-if="activePage === 'locks'">
-          <p class="eyebrow">OPTIONAL LOCAL SPEED BUMPS</p><h1>Toy locks for individual elements</h1><v-alert type="warning" variant="tonal">These locks are for fun and organization. They do not encrypt data, secure the PBX, or protect anything from another person using this computer.</v-alert><div class="toolbar"><v-text-field label="Search locked elements"/><v-btn icon="mdi-regex" aria-label="Open regex builder for lock search"/><v-btn color="primary" @click="lockTarget='Current page';lockWizardOpen=true">Lock an element…</v-btn></div><v-card class="pa-8 text-center"><h2>No toy locks configured</h2><p>Every lock has its own password or time-based code and its own duration. Clearing this visitor’s site storage or the desktop application-data folder resets all locks.</p><v-btn variant="tonal" @click="openPage('support')">Forgotten a lock? Open Support Tickets</v-btn></v-card>
+          <p class="eyebrow">OPTIONAL LOCAL SPEED BUMPS</p><h1>Toy locks for individual elements</h1><v-alert type="warning" variant="tonal">These locks are for fun and organization. They do not encrypt data, secure the PBX, or protect anything from another person using this computer.</v-alert><div class="toolbar"><v-text-field label="Search locked elements"/><v-btn icon="mdi-regex" aria-label="Open regex builder for lock search" @click="openRegexBuilder('Toy-lock search')"/><v-btn color="primary" @click="lockTarget='Current page';lockWizardOpen=true">Lock an element…</v-btn></div><v-card class="pa-8 text-center"><h2>No toy locks configured</h2><p>Every lock has its own password or time-based code and its own duration. Clearing this visitor’s site storage or the desktop application-data folder resets all locks.</p><v-btn variant="tonal" @click="openPage('support')">Forgotten a lock? Open Support Tickets</v-btn></v-card>
         </template>
 
         <template v-else-if="activePage === 'support'">
@@ -436,27 +548,50 @@ onBeforeUnmount(() => {
         </template>
 
         <template v-else-if="activePage === 'changelog'">
-          <p class="eyebrow">RELEASE HISTORY</p><h1>Changelog</h1><div class="toolbar"><v-text-field type="date" label="From date"/><v-text-field type="date" label="To date"/><v-text-field label="Search changes"/><v-btn icon="mdi-regex" aria-label="Open regex builder for changelog search"/><v-btn @click="exportView('Markdown')">Export filtered view</v-btn></div><v-card class="pa-6"><div class="d-flex justify-space-between"><h2>0.1.0</h2><time datetime="2026-08-22">2026-08-22</time></div><h3>Added</h3><ul><li>Guided MaterialPBX web interface and Windows desktop lab.</li><li>Plain-language one-click onboarding and visual PBX feature destinations.</li><li>Landing and documentation surface with an explicit non-runtime boundary.</li></ul><p>Source commit will be linked after this release is committed and published; no neighboring commit is guessed.</p></v-card>
+          <p class="eyebrow">RELEASE HISTORY</p><h1>Changelog</h1><div class="toolbar"><v-text-field type="date" label="From date"/><v-text-field type="date" label="To date"/><v-text-field label="Search changes"/><v-btn icon="mdi-regex" aria-label="Open regex builder for changelog search" @click="openRegexBuilder('Changelog search')"/><v-btn @click="exportView('Markdown')">Export filtered view</v-btn></div><v-card class="pa-6"><div class="d-flex justify-space-between"><h2>0.1.0</h2><time datetime="2026-08-22">2026-08-22</time></div><h3>Added</h3><ul><li>Guided MaterialPBX web interface and Windows desktop lab.</li><li>Plain-language one-click onboarding and visual PBX feature destinations.</li><li>Landing and documentation surface with an explicit non-runtime boundary.</li></ul><p><a href="https://github.com/Ding-Ding-Projects/MaterialPBX/commit/5147a896f8c65b863607378480d5fe46df04e31f" target="_blank" rel="noopener">Source commit 5147a89</a></p></v-card>
         </template>
 
         <template v-else-if="activePage === 'docs'">
-          <p class="eyebrow">OFFLINE GUIDE</p><h1>Every feature, explained in plain language</h1><div class="toolbar"><v-text-field label="Search titles and article text"/><v-btn icon="mdi-regex" aria-label="Open regex builder for documentation search"/></div><div class="task-grid"><v-card v-for="item in pages.filter(item=>!['docs','settings'].includes(item.id))" :key="item.id" class="pa-5 task-card"><h3>{{ item.label }}</h3><p>{{ item.description }}</p><v-btn variant="text" @click="openPage(item.id)">Open feature</v-btn></v-card></div>
+          <p class="eyebrow">OFFLINE GUIDE</p><h1>Every feature, explained in plain language</h1><div class="toolbar"><v-text-field label="Search titles and article text"/><v-btn icon="mdi-regex" aria-label="Open regex builder for documentation search" @click="openRegexBuilder('Documentation search')"/></div><div class="task-grid"><v-card v-for="item in pages.filter(item=>!['docs','settings'].includes(item.id))" :key="item.id" class="pa-5 task-card"><h3>{{ item.label }}</h3><p>{{ item.description }}</p><v-btn variant="text" @click="openPage(item.id)">Open feature</v-btn></v-card></div>
+        </template>
+
+        <template v-else-if="visualFeature">
+          <section class="feature-hero">
+            <div class="feature-symbol" aria-hidden="true">{{ visualFeature.icon }}</div>
+            <div><p class="eyebrow">{{ visualFeature.eyebrow }}</p><h1>{{ page.label }}</h1><p class="feature-lead">{{ visualFeature.lead }}</p><p class="safe-default"><strong>Safe starting point:</strong> {{ visualFeature.default }}</p></div>
+            <div class="feature-actions"><v-btn variant="tonal" :loading="resourceLoading" :disabled="props.surface === 'site' || !['connected','degraded'].includes(connection)" :title="props.surface === 'site' ? 'The documentation site does not connect to a PBX.' : undefined" @click="loadResources(activePage as PbxResourceKind)">Refresh live data</v-btn><v-btn color="primary" :disabled="props.surface === 'site' || !canAttemptWriteCurrent" :title="props.surface === 'site' ? 'Install the app or open the hosted control interface to configure a PBX.' : !canAttemptWriteCurrent ? 'A prior write request was refused for this feature.' : 'Write permission is confirmed only after the server accepts a save.'" @click="openResourceEditor()">{{ activePage === 'observability' ? 'Configure view' : 'Create' }}</v-btn></div>
+          </section>
+          <div class="feature-metrics">
+            <v-card class="pa-5"><span>Live records</span><strong>{{ ['connected','degraded'].includes(connection) ? currentResources.length : '—' }}</strong><small>{{ ['connected','degraded'].includes(connection) ? currentAccess === 'denied' ? 'Resource request was refused' : 'Returned by this server' : 'Connect to load real records' }}</small></v-card>
+            <v-card class="pa-5"><span>Observed access</span><strong>{{ currentAccess === 'write' ? 'Write confirmed' : currentAccess === 'read-only' ? 'Read only' : currentAccess === 'denied' ? 'Refused' : currentAccess === 'read' ? 'Read confirmed' : 'Not checked' }}</strong><small>The capability registry is evidence, not authorization. Access changes only after a real resource response.</small></v-card>
+            <v-card class="pa-5"><span>PBX health</span><strong>{{ connectionLabel }}</strong><small>{{ healthSnapshot?.warnings[0] ?? connectionMessage }}</small></v-card>
+          </div>
+          <section v-if="activePage === 'ivrs'" class="call-flow-canvas" aria-label="Phone menu call-flow canvas">
+            <article class="flow-node start"><span>1</span><div><strong>Greeting</strong><small>Play one verified recording</small></div></article><div class="flow-line">Callers choose</div>
+            <div class="flow-branches"><article v-for="branch in [{key:'0',label:'Operator'},{key:'1',label:'Sales queue'},{key:'2',label:'Support queue'},{key:'…',label:'Invalid or timeout'}]" :key="branch.key" class="flow-node"><span>{{ branch.key }}</span><div><strong>{{ branch.label }}</strong><small>Choose a verified destination in the editor</small></div></article></div>
+          </section>
+          <div class="control-room-grid" :aria-busy="resourceLoading">
+            <v-card v-for="resource in currentResources" :key="resource.id" class="resource-card pa-5"><div class="resource-card-title"><div><h2>{{ resource.name }}</h2><p>{{ resource.summary || page.description }}</p></div><v-switch :model-value="resource.enabled" hide-details :label="`${resource.name} enabled`" :disabled="!canAttemptWriteCurrent" @update:model-value="openResourceEditor(resource)"/></div><div class="resource-tags"><v-chip v-for="tag in resource.tags" :key="tag" size="small">{{ tag }}</v-chip><v-chip size="small" variant="outlined">Updated {{ resource.updatedAt || 'time not reported' }}</v-chip></div><v-btn variant="text" :disabled="!canAttemptWriteCurrent" @click="openResourceEditor(resource)">Open visual editor</v-btn></v-card>
+            <v-card v-if="!currentResources.length" class="feature-empty pa-8"><div class="empty-icon">{{ visualFeature.icon }}</div><h2>{{ props.surface === 'site' ? 'Product control preview' : currentAccess === 'denied' ? 'Resource permission refused' : ['connected','degraded'].includes(connection) ? 'No records returned for this feature' : 'Connect to load real PBX records' }}</h2><p>{{ props.surface === 'site' ? 'This documentation page explains the installed and hosted controls. It never connects to or imitates a live PBX.' : currentAccess === 'denied' ? 'The authenticated resource request returned a permission refusal. Ask an administrator for the narrow resource permission and retry.' : ['connected','degraded'].includes(connection) ? 'The control service returned an empty list. MaterialPBX does not insert sample live data.' : 'You can review the guided controls and save a local draft. Nothing will be presented as live until preflight succeeds.' }}</p><v-btn v-if="props.surface !== 'site' && !['connected','degraded'].includes(connection)" color="primary" @click="connectDialog=true">Connect a server</v-btn><v-btn v-else-if="props.surface !== 'site' && canAttemptWriteCurrent" color="primary" @click="openResourceEditor()">Create the first item</v-btn><v-btn v-else-if="props.surface === 'site'" href="https://github.com/Ding-Ding-Projects/MaterialPBX/releases/download/build-3-5147a89/MaterialPBX-0.1.0-x64-Setup.exe" target="_blank" rel="noopener">Download the verified Windows installer</v-btn></v-card>
+          </div>
         </template>
 
         <template v-else>
-          <div class="headline-row"><div><p class="eyebrow">{{ page.group.toUpperCase() }}</p><h1>{{ page.label }}</h1><p>{{ page.description }}</p></div><div class="d-flex ga-2"><v-btn variant="tonal" @click="expertMode=!expertMode">{{ expertMode ? 'Guided view' : 'Expert view' }}</v-btn><v-btn color="primary" prepend-icon="mdi-plus" @click="editorOpen=true">Create</v-btn></div></div>
+          <div class="headline-row"><div><p class="eyebrow">{{ page.group.toUpperCase() }}</p><h1>{{ page.label }}</h1><p>{{ page.description }}</p></div><div class="d-flex ga-2"><v-btn variant="tonal" @click="expertMode=!expertMode">{{ expertMode ? 'Guided view' : 'Expert view' }}</v-btn><v-btn v-if="props.surface !== 'site'" color="primary" prepend-icon="mdi-plus" @click="openResourceEditor()">Create</v-btn></div></div>
           <v-alert v-if="expertMode" type="info" variant="tonal" class="mb-4">Expert view names the Asterisk and FreePBX concepts behind each control. Values still use typed pickers, switches, ranges, and validated fields instead of raw configuration text.</v-alert>
-          <div class="toolbar"><v-text-field :label="`Search ${page.label}`" prepend-inner-icon="mdi-magnify"/><v-btn icon="mdi-regex" :aria-label="`Open regex builder for ${page.label} search`"/><v-select label="Status" :items="['All','Enabled','Disabled','Needs attention']"/><v-btn @click="exportView('JSON')">Export</v-btn><v-btn color="error" variant="tonal" @click="superConfirmOpen=true">Delete selected…</v-btn></div>
-          <v-card class="empty-state pa-10 text-center"><div class="empty-icon">{{ page.icon }}</div><h2>No {{ page.label.toLowerCase() }} on this disconnected surface</h2><p>Connect a PBX to load real records, or create a local draft now. MaterialPBX never inserts fake live data.</p><v-btn color="primary" @click="editorOpen=true">Create local draft</v-btn></v-card>
+          <div class="toolbar"><v-text-field :label="`Search ${page.label}`" prepend-inner-icon="mdi-magnify"/><v-btn icon="mdi-regex" :aria-label="`Open regex builder for ${page.label} search`" @click="openRegexBuilder(`${page.label} search`)"/><v-select label="Status" :items="['All','Enabled','Disabled','Needs attention']"/><v-btn @click="exportView('JSON')">Export</v-btn><v-btn color="error" variant="tonal" @click="superConfirmOpen=true">Delete selected…</v-btn></div>
+          <v-card class="empty-state pa-10 text-center"><div class="empty-icon">{{ page.icon }}</div><h2>{{ props.surface === 'site' ? 'Product feature guide' : `No ${page.label.toLowerCase()} loaded` }}</h2><p>{{ props.surface === 'site' ? 'This documentation surface explains the control without presenting sample live PBX records.' : ['connected','degraded'].includes(connection) ? 'The server returned no records or did not grant read permission. MaterialPBX never inserts fake live data.' : 'Connect a PBX to load real records, or create a local draft now. Nothing will be applied while offline.' }}</p><v-btn v-if="props.surface !== 'site'" color="primary" @click="openResourceEditor()">Create local draft</v-btn></v-card>
         </template>
       </v-container>
     </v-main>
 
-    <v-dialog v-model="connectDialog" max-width="720"><v-card><v-card-title>Connect a PBX server</v-card-title><v-card-text><p>Enter the HTTPS address of a MaterialPBX control service. Credentials are collected by the protected connection flow and are never placed in this page, logs, or exports.</p><v-text-field v-model="serverUrl" label="Server address" type="url" hint="Example: https://pbx.example.local" persistent-hint/><v-select label="Connection type" :items="['MaterialPBX control service','Pair another FreePBX-compatible server']"/><v-alert type="info" variant="tonal">The server certificate, API compatibility, permissions, Asterisk version, FreePBX version, firewall reachability, and clock are checked before the connection is accepted.</v-alert></v-card-text><v-card-actions><v-spacer/><v-btn @click="connectDialog=false">Cancel</v-btn><v-btn color="primary" @click="notify('Connection not attempted','This UI lane does not include the server control plane. Use the Docker deployment or connect after its service is running.','warning');connectDialog=false">Run preflight</v-btn></v-card-actions></v-card></v-dialog>
+    <v-dialog v-model="connectDialog" max-width="720"><v-card><v-card-title>Connect a PBX control service</v-card-title><v-card-text><p>Enter the HTTPS address and an admin credential for this session. Only the successful non-secret endpoint is saved locally. The credential stays in memory, is removed from this form immediately, and is discarded on disconnect or reload.</p><v-text-field v-model="serverUrl" label="Control-service address" type="url" placeholder="https://pbx.example.com" hint="Use HTTPS. HTTP is accepted only for localhost development." persistent-hint/><v-text-field v-model="serverCredential" label="Admin credential for this session" type="password" autocomplete="off" hint="Sent as an Authorization bearer credential. Never stored in settings, logs, history, or exports." persistent-hint/><v-alert :type="connection === 'permission-denied' ? 'warning' : ['offline','incompatible'].includes(connection) ? 'error' : 'info'" variant="tonal"><strong>{{ connectionLabel }}</strong><p>{{ connectionMessage }}</p></v-alert><div class="preflight-list"><div><v-icon icon="mdi-shield-check-outline"/><span>Public health at <code>/healthz</code></span></div><div><v-icon icon="mdi-api"/><span>Evidence registry schema and warnings</span></div><div><v-icon icon="mdi-account-key-outline"/><span>Authenticated system status</span></div><div><v-icon icon="mdi-phone-check-outline"/><span>Runtime-probed adapters and identity</span></div></div><p v-if="connection === 'permission-denied'">Recovery: enter a permitted admin credential and run preflight again. The capability registry describes evidence; it does not grant authorization.</p><p v-else-if="connection === 'offline'">Recovery: verify the address, trusted certificate, service process, firewall, and network route, then retry.</p><p v-else-if="connection === 'incompatible'">Recovery: correct the endpoint or update the MaterialPBX control service to a compatible API version.</p></v-card-text><v-card-actions><v-btn variant="text" :disabled="!serverUrl" @click="clearSavedEndpoint">Clear saved endpoint</v-btn><v-spacer/><v-btn @click="connectDialog=false;serverCredential=''">Cancel</v-btn><v-btn color="primary" :loading="connection === 'connecting'" :disabled="!serverUrl.trim() || !serverCredential" @click="runPreflight">Run real preflight</v-btn></v-card-actions></v-card></v-dialog>
 
-    <v-dialog v-model="editorOpen" max-width="760"><v-card><v-card-title>Create {{ page.label }}</v-card-title><v-card-subtitle>{{ page.description }}</v-card-subtitle><v-card-text><template v-for="field in currentForm" :key="field.key"><v-text-field v-if="field.type==='text'" v-model="editorValues[field.key]" :label="field.label" :hint="field.help" persistent-hint/><v-number-input v-else-if="field.type==='number'" v-model="editorValues[field.key]" :label="field.label" :hint="field.help" persistent-hint/><v-select v-else-if="field.type==='select'" v-model="editorValues[field.key]" :label="field.label" :items="field.options" :hint="field.help" persistent-hint/><v-slider v-else-if="field.type==='slider'" v-model="editorValues[field.key]" :label="field.label" :min="1" :max="field.key==='ringSeconds'?120:64" thumb-label/><v-switch v-else-if="field.type==='switch'" v-model="editorValues[field.key]" :label="field.label" :hint="field.help" persistent-hint/></template></v-card-text><v-card-actions><v-spacer/><v-btn @click="editorOpen=false">Cancel</v-btn><v-btn color="primary" @click="saveEditor">Save local draft</v-btn></v-card-actions></v-card></v-dialog>
+    <v-dialog v-model="editorOpen" max-width="760"><v-card><v-card-title>{{ editingResourceId ? 'Edit' : 'Create' }} {{ page.label }}</v-card-title><v-card-subtitle>{{ page.description }}</v-card-subtitle><v-card-text><template v-for="field in currentForm" :key="field.key"><v-text-field v-if="field.type==='text'" v-model="editorValues[field.key]" :label="field.label" :hint="field.help" persistent-hint/><v-number-input v-else-if="field.type==='number'" v-model="editorValues[field.key]" :label="field.label" :hint="field.help" persistent-hint/><v-select v-else-if="field.type==='select'" v-model="editorValues[field.key]" :label="field.label" :items="field.options" :hint="field.help" persistent-hint/><v-slider v-else-if="field.type==='slider'" v-model="editorValues[field.key]" :label="field.label" :min="1" :max="field.key==='ringSeconds'?120:64" thumb-label/><v-switch v-else-if="field.type==='switch'" v-model="editorValues[field.key]" :label="field.label" :hint="field.help" persistent-hint/></template><v-alert v-if="['connected','degraded'].includes(connection)" type="info" variant="tonal">Saving sends this typed resource to the authenticated control service. Success appears only after the server confirms it.</v-alert><v-alert v-else type="warning" variant="tonal">Saving creates a local draft only. No PBX is connected.</v-alert></v-card-text><v-card-actions><v-spacer/><v-btn @click="editorOpen=false">Cancel</v-btn><v-btn color="primary" :disabled="['connected','degraded'].includes(connection) && !canAttemptWriteCurrent" @click="saveEditor">{{ ['connected','degraded'].includes(connection) ? 'Apply through control service' : 'Save local draft' }}</v-btn></v-card-actions></v-card></v-dialog>
 
-    <v-dialog v-model="paletteOpen" :fullscreen="false" max-width="860"><v-card class="palette"><v-card-title>Command palette</v-card-title><v-card-text><div class="search-row"><v-text-field v-model="paletteQuery" autofocus label="Search every page, command, setting, and appearance control" prepend-inner-icon="mdi-magnify"/><v-btn icon="mdi-regex" aria-label="Open regex builder for command palette search"/></div><v-list><v-list-item v-for="item in paletteResults" :key="item.id" :title="item.label" :subtitle="`${item.group} · ${item.description}`" @click="openPage(item.id);paletteOpen=false"/><v-list-item title="Theme"><template #append><v-select v-model="settings.theme" hide-details density="compact" :items="['system','light','dark']"/></template></v-list-item><v-list-item title="Narrator"><template #append><v-switch v-model="settings.narrator" hide-details/></template></v-list-item></v-list></v-card-text></v-card></v-dialog>
+    <v-dialog v-model="paletteOpen" :fullscreen="false" max-width="860"><v-card class="palette"><v-card-title>Command palette</v-card-title><v-card-text><div class="search-row"><v-text-field v-model="paletteQuery" autofocus label="Search every page, command, setting, and appearance control" prepend-inner-icon="mdi-magnify"/><v-btn icon="mdi-regex" aria-label="Open regex builder for command palette search" @click="openRegexBuilder('Command-palette search')"/></div><v-list><v-list-item v-for="item in paletteResults" :key="item.id" :title="item.label" :subtitle="`${item.group} · ${item.description}`" @click="openPage(item.id);paletteOpen=false"/><v-list-item title="Theme"><template #append><v-select v-model="settings.theme" hide-details density="compact" :items="['system','light','dark']"/></template></v-list-item><v-list-item title="Narrator"><template #append><v-switch v-model="settings.narrator" hide-details/></template></v-list-item></v-list></v-card-text></v-card></v-dialog>
+
+    <v-dialog v-model="regexDialogOpen" max-width="760"><v-card><v-card-title>Regular-expression builder · {{ regexContext }}</v-card-title><v-card-text><v-switch v-model="regexDraft.regex" label="Use regular expression"/><v-text-field v-model="regexDraft.query" label="Pattern or plain text"/><v-text-field v-model="regexDraft.flags" label="Flags" hint="Supported JavaScript flags: d g i m s u v y" persistent-hint/><div class="builder-chips"><v-chip v-for="token in ['^','$','[abc]','(group)','a|b','+','*','?']" :key="token" @click="regexDraft.query += token">{{ token }}</v-chip></div><v-alert v-if="regexDraftResult.error" type="error" variant="tonal">{{ regexDraftResult.error }}</v-alert><v-alert v-else type="success" variant="tonal">Pattern is valid for the JavaScript regular-expression engine.</v-alert></v-card-text><v-card-actions><v-spacer/><v-btn @click="regexDialogOpen=false">Close</v-btn></v-card-actions></v-card></v-dialog>
 
     <v-dialog v-model="appearanceDialog" max-width="860"><v-card><v-card-title>Edit appearance: {{ appearanceTarget }}</v-card-title><v-card-text><p>This anchored editor changes the selected element only. Unsupported properties remain visible with an explanation.</p><v-tabs><v-tab>Typography</v-tab><v-tab>Color</v-tab><v-tab>Shape</v-tab><v-tab>States</v-tab></v-tabs><div class="appearance-grid"><v-text-field label="Font family" :model-value="settings.fontFamily"/><v-number-input label="Font size" :model-value="16"/><v-select label="Weight" :items="[100,200,300,400,500,600,700,800,900]"/><v-checkbox label="Italic"/><v-select label="Underline" :items="['None','Single','Double','Dotted','Wavy']"/><v-select label="Strikethrough" :items="['None','Single','Double']"/><v-number-input label="Letter spacing" suffix="px"/><v-number-input label="Line height"/><v-number-input label="Corner radius" suffix="px"/><v-select label="Elevation" :items="[0,1,2,3,4,5]"/></div><v-btn color="primary" @click="appearanceDialog=false;recordHistory(`Changed appearance of ${appearanceTarget}`)">Apply to this element</v-btn></v-card-text></v-card></v-dialog>
 
