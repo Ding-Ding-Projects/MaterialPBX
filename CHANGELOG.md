@@ -5,8 +5,11 @@
 ### Changed
 
 - Replaced the generic conference-room form with a guided typed ConfBridge experience: numeric room and capacity controls, presets, participant switches, plain corrections, review output, recording and media disclosures, and validated advanced details. Conference resources now dispatch through the strict protocol and the FreePBX 17 Conferences BMO API with deterministic ownership, conflict checks, standard `*1` unmute-menu support, and explicit compensation for partial create, update, number-change, disable, delete, or rollback operations. Runtime call verification remains pending.
+- Repaired the conference editor's built layout after visual verification: the dialog now paints an opaque bounded surface, keeps its actions visible while content scrolls, fits the supported desktop minimum without horizontal overflow, exposes a visible 48-pixel close control, preserves new-room defaults and saved local drafts, and keeps persistent notifications above the footer and inside the modal keyboard-focus boundary.
 
 - Advanced the Windows installer candidate to 0.1.2 after the release pipeline correctly refused to recycle the already-published 0.1.1 installed version for the container-build repair.
+- Advanced the Windows installer candidate to 0.1.3 for the guided conference-room release; 0.1.2 remains the verified installer-repair baseline.
+- Advanced every public-site “Get app” action from the obsolete 0.1.1 asset to the immutable verified 0.1.2 repair release while keeping the 0.1.3 candidate explicitly unpublished.
 
 - Fixed the control-plane and privileged-helper container builds to include the build scripts invoked by their package manifests. Clean image builds previously stopped before TypeScript compilation because the Docker build context omitted those files.
 

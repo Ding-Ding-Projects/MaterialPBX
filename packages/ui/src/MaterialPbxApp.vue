@@ -331,9 +331,9 @@ watch(regexDialogOpen, (open, previous) => {
 })
 const filteredPages = computed(() => pages.filter((item) => navCompiled.value.matcher(`${item.label} ${item.description} ${item.group}`)))
 const productFeaturePages = computed(() => pages.filter((item) => ['People & phones', 'Calling', 'Call flows', 'Reports', 'Advanced', 'System'].includes(item.group) && item.id !== 'status'))
-const candidateVersion = '0.1.2'
-const latestPublishedVersion = '0.1.1'
-const latestPublishedTag = 'build-121-3f31f81'
+const candidateVersion = '0.1.3'
+const latestPublishedVersion = '0.1.2'
+const latestPublishedTag = 'build-127-1-4aa2695'
 const installerDownloadUrl = `https://github.com/Ding-Ding-Projects/MaterialPBX/releases/download/${latestPublishedTag}/MaterialPBX-${latestPublishedVersion}-x64-Setup.exe`
 const siteIcons = {
   accountGroup: mdiAccountGroupOutline,
@@ -1539,6 +1539,7 @@ onBeforeUnmount(() => {
           <v-alert v-if="!['connected','degraded'].includes(connection)" type="warning" variant="tonal">Saving creates a local draft only. No PBX is connected.</v-alert>
         </v-card-text>
         <v-card-actions :class="{ 'conference-editor-actions': activePage === 'conferences' }"><v-spacer/><v-btn @click="discardEditorDraft">Cancel</v-btn><v-btn color="primary" :disabled="(activePage === 'conferences' && conferenceErrors.length > 0) || (['connected','degraded'].includes(connection) && !canAttemptWriteCurrent)" @click="saveEditor">{{ ['connected','degraded'].includes(connection) ? editingResourceProvenance === 'local-draft' ? 'Review and send to control service' : 'Apply through control service' : 'Save local draft' }}</v-btn></v-card-actions>
+        <div v-if="editorOpen" class="snackbar-stack snackbar-stack--editor-open" aria-live="polite"><v-alert v-for="notice in notices.slice(0,3)" :key="notice.id" :type="notice.level" closable variant="elevated" @click:close="notices=notices.filter(item=>item.id!==notice.id)"><strong>{{ notice.title }}</strong><div>{{ notice.body }}</div></v-alert></div>
       </v-card>
     </v-dialog>
     <v-dialog v-model="editorCloseConfirmOpen" max-width="560" persistent @keydown.esc.stop.prevent="editorCloseConfirmOpen=false"><v-card><v-card-title>Discard unsaved editor changes?</v-card-title><v-card-text><p>The current values differ from the last loaded or saved version. Keep editing to preserve them, or discard them and return focus to the control that opened this editor.</p></v-card-text><v-card-actions><v-btn @click="editorCloseConfirmOpen=false">Keep editing</v-btn><v-spacer/><v-btn color="error" variant="tonal" @click="confirmDiscardEditorDraft">Discard changes</v-btn></v-card-actions></v-card></v-dialog>
@@ -1554,6 +1555,6 @@ onBeforeUnmount(() => {
     <v-dialog v-model="superConfirmOpen" max-width="680" @keydown.esc.stop.prevent="cancelSuperConfirm"><v-card><v-card-title>Confirm destructive action</v-card-title><v-card-text><p>This removes the selected local draft. It cannot affect a live PBX while disconnected.</p><div class="key-grid"><v-checkbox v-model="confirmKeys.one" label="Key 1: I selected the intended item"/><v-checkbox v-model="confirmKeys.two" label="Key 2: I reviewed what will be removed"/></div><v-slider v-model="confirmKeys.slider" :disabled="!(confirmKeys.one&&confirmKeys.two)" min="0" max="100" step="1" label="Slide fully to authorize" thumb-label/></v-card-text><v-card-actions><v-btn @click="cancelSuperConfirm">Emergency exit</v-btn><v-spacer/><v-btn color="error" :disabled="!(confirmKeys.one&&confirmKeys.two&&confirmKeys.slider===100)" @click="completeDestructiveAction">Complete removal</v-btn></v-card-actions></v-card></v-dialog>
 
     <v-snackbar v-if="dimSum" :model-value="true" location="bottom right" timeout="7000"><strong>{{ dimSum.name }}</strong><p>A small startup surprise from the public dim-sum catalog.</p></v-snackbar>
-    <div class="snackbar-stack" aria-live="polite"><v-alert v-for="notice in notices.slice(0,3)" :key="notice.id" :type="notice.level" closable variant="elevated" @click:close="notices=notices.filter(item=>item.id!==notice.id)"><strong>{{ notice.title }}</strong><div>{{ notice.body }}</div></v-alert></div>
+    <div v-if="!editorOpen" class="snackbar-stack" aria-live="polite"><v-alert v-for="notice in notices.slice(0,3)" :key="notice.id" :type="notice.level" closable variant="elevated" @click:close="notices=notices.filter(item=>item.id!==notice.id)"><strong>{{ notice.title }}</strong><div>{{ notice.body }}</div></v-alert></div>
   </v-app>
 </template>

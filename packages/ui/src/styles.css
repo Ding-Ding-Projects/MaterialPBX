@@ -301,6 +301,7 @@ h2 { font-size: clamp(1.45rem, 2vw, 2rem); }
 .preflight-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-block: 18px; }
 .preflight-list > div { display: flex; align-items: center; gap: 10px; padding: 12px; border-radius: 14px; background: rgb(var(--v-theme-surface-container)); }
 .snackbar-stack { position: fixed; right: 20px; bottom: 20px; display: grid; width: min(420px, calc(100vw - 40px)); gap: 10px; z-index: 3000; }
+.snackbar-stack--editor-open { right: auto; left: 20px; bottom: 88px; }
 .focus-mode > *:not(.v-alert):not(.headline-row) { opacity: .48; transition: opacity .2s ease; }
 .focus-mode > *:hover, .focus-mode > *:focus-within { opacity: 1; }
 .low-stimulation { filter: saturate(.62); }
