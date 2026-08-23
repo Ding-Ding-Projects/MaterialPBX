@@ -24,7 +24,7 @@
 
 ## Verification and release
 
-- [ ] Build, publish, download, install, and verify the unsigned Squirrel.Windows 0.1.2 repair release.
+- [x] Build, publish, download, install, and verify the unsigned Squirrel.Windows 0.1.2 repair release.
 - [x] Run the focused local site, installer, runtime/deployment, release-evidence, service-contract, PHP snapshot, shell-analysis, dependency-audit, build, and packaging checks after upgrading to the full verification workflow.
 - [ ] Capture every real built surface through the approved headless route.
 - [ ] Re-run public-site browser, responsive, keyboard, contrast, and visual checks when the required cheap headless route is available.
@@ -40,6 +40,8 @@
 - [x] Add bounded extension and credentialless PJSIP trunk compilers with explicit generation boundaries.
 - [x] Add bounded inbound/outbound route compilers with validated patterns, destinations, trunk order, and emergency constraints.
 - [x] Add bounded IVR, voicemail, and time-condition compilers covering every typed application feature subset.
+- [x] Finish the guided typed conference editor and FreePBX 17 Conferences BMO compiler, including built-desktop preset, local-draft, reopen, minimum-size, notification-placement, and keyboard-focus evidence. Live telephony behavior remains the separate runtime item below.
+- [ ] Verify conference dialing, capacity, recording, waiting music, mute toggle, reload, and deletion on a live FreePBX 17/Asterisk 22 runtime.
 - [ ] Adapt deployment platform support for an inventoried host or provision a dedicated Debian 12 amd64 host.
 - [ ] Resolve external HTTP/HTTPS publishing without disturbing the unrelated service already using ports 80 and 443.
 - [x] Load module 0.1.0 on FreePBX 17, enable it, and verify creation of all three migration tables through `FreePBX::Database()`.

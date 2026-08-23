@@ -8,7 +8,8 @@ The capability registry preserves five distinct states: installed, configured, r
 | --- | --- | --- | --- |
 | Extensions, users, devices | Versioned desired resources | FreePBX bridge and reload | Resource-specific field compilation remains intentionally narrow. |
 | Trunks and inbound/outbound routes | Versioned desired resources | FreePBX bridge and reload | Carrier templates, emergency routing, fraud policy, and jurisdiction rules require explicit implementation. |
-| IVRs, queues, conferences | Versioned desired resources | FreePBX bridge; ARI can inspect live bridges | Live queue/member event ingestion is not persistent in version 1. |
+| IVRs and queues | Versioned desired resources | FreePBX bridge; ARI can inspect live bridges | Live queue/member event ingestion is not persistent in version 1. |
+| Conferences | Strict typed room resource | FreePBX 17 Conferences BMO owns `ext-meetme` and dynamic ConfBridge options | Configuration and reload do not prove a real call, recording, media, or participant-limit behavior. |
 | Voicemail | Voicemail-box resources and event topic | FreePBX/Asterisk modules | Message content and audio are not returned by the generic API. |
 | Recordings | Recording policy resources and read-only catalog | Files below the recording root | Playback/range streaming and retention execution are not included. |
 | CDR and CEL | Bounded historical queries | Fixed MariaDB SQL | Availability depends on local schema and credentials. |

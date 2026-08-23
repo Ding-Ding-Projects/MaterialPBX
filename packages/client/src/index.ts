@@ -14,7 +14,21 @@ export interface PbxResource {
   enabled: boolean
   tags: string[]
   updatedAt: string
-  details?: Record<string, string | number | boolean | string[]>
+  revision?: number
+  details?: Record<string, unknown>
+  provenance?: 'server' | 'local-draft'
+  pendingReview?: boolean
+}
+
+export interface NativeApplicationOutcome {
+  storedDesired?: boolean
+  applied: boolean
+  reloaded: boolean
+  runtimeVerification: string
+  partialFailure: boolean
+  compilation?: Record<string, unknown>
+  rollback?: Record<string, unknown>
+  warning?: string | null
 }
 
 export interface HealthSnapshot {
@@ -33,7 +47,7 @@ export interface CapabilityRecord { id: string; category: 'platform' | 'interfac
 export interface CapabilitySnapshot { schemaVersion: 1; generatedAt: string; degraded: boolean; warnings: string[]; capabilities: CapabilityRecord[] }
 export interface SystemStatusSnapshot { identity: Record<string, unknown>; capabilities: CapabilitySnapshot | null; warnings: string[]; adapters: { privilegedHelper: boolean; cdrDatabase: boolean; ami: 'runtime-probed'; ari: 'runtime-probed' } }
 export interface PreflightResult { ok: boolean; state: ConnectionState; message: string; health?: HealthSnapshot; capabilities?: CapabilitySnapshot; status?: SystemStatusSnapshot }
-export interface SaveResult { ok: boolean; resource?: PbxResource; message: string; state?: ConnectionState }
+export interface SaveResult { ok: boolean; resource?: PbxResource; application?: NativeApplicationOutcome; storedLocally?: boolean; message: string; state?: ConnectionState }
 
 export interface MaterialPbxClient {
   readonly state: ConnectionState
@@ -47,23 +61,127 @@ export interface MaterialPbxClient {
 }
 
 const disconnectedMessage = 'No PBX is connected. Changes remain local until you connect a server.'
+const resourceKinds: PbxResourceKind[] = ['extensions','users','devices','trunks','inbound-routes','outbound-routes','ivrs','queues','ring-groups','conferences','voicemail','recordings','cdr','cel','calendars','presence','parking','paging','announcements','time-conditions','webrtc','paired-servers','backups','observability','security']
+const localDraftStorageKey = 'materialpbx.resource-drafts.v1'
+const localDraftLimit = 100
+const localDraftByteLimit = 256 * 1024
+let memoryDrafts: PbxResource[] = []
+
+const localStorageIfAvailable = (): Storage | null => {
+  try { return (globalThis as typeof globalThis & { localStorage?: Storage }).localStorage ?? null }
+  catch { return null }
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+const normalizeLocalDraft = (value: unknown): PbxResource | null => {
+  if (!isRecord(value) || typeof value.id !== 'string' || value.id.length < 1 || value.id.length > 128) return null
+  if (typeof value.kind !== 'string' || !resourceKinds.includes(value.kind as PbxResourceKind)) return null
+  if (typeof value.name !== 'string' || value.name.length < 1 || value.name.length > 256 || typeof value.summary !== 'string') return null
+  if (typeof value.enabled !== 'boolean' || !Array.isArray(value.tags) || !value.tags.every(tag => typeof tag === 'string') || typeof value.updatedAt !== 'string') return null
+  if (!isRecord(value.details)) return null
+  return { id: value.id, kind: value.kind as PbxResourceKind, name: value.name, summary: value.summary, enabled: value.enabled, tags: value.tags as string[], updatedAt: value.updatedAt, revision: typeof value.revision === 'number' && Number.isInteger(value.revision) && value.revision >= 0 ? value.revision : undefined, details: value.details, provenance: 'local-draft', pendingReview: true }
+}
+
+const readLocalDrafts = (): PbxResource[] => {
+  const storage = localStorageIfAvailable()
+  if (!storage) return [...memoryDrafts]
+  const raw = storage.getItem(localDraftStorageKey)
+  if (!raw) return []
+  try {
+    if (new TextEncoder().encode(raw).byteLength > localDraftByteLimit) throw new Error('oversized')
+    const envelope = JSON.parse(raw) as unknown
+    if (!isRecord(envelope) || envelope.version !== 1 || !Array.isArray(envelope.drafts) || envelope.drafts.length > localDraftLimit) throw new Error('invalid')
+    const drafts = envelope.drafts.map(normalizeLocalDraft)
+    if (drafts.some(draft => draft === null)) throw new Error('invalid')
+    return drafts as PbxResource[]
+  } catch {
+    storage.removeItem(localDraftStorageKey)
+    return []
+  }
+}
+
+const writeLocalDrafts = (drafts: PbxResource[]) => {
+  if (drafts.length > localDraftLimit) throw new Error(`Local draft storage accepts at most ${localDraftLimit} resources. Remove an older draft and try again.`)
+  const payload = JSON.stringify({ version: 1, drafts })
+  if (new TextEncoder().encode(payload).byteLength > localDraftByteLimit) throw new Error('Local drafts exceed the 256 KiB storage limit. Remove an older draft and try again.')
+  memoryDrafts = drafts
+  localStorageIfAvailable()?.setItem(localDraftStorageKey, payload)
+}
+
+export const listLocalDrafts = (kind: PbxResourceKind): PbxResource[] => readLocalDrafts().filter(draft => draft.kind === kind)
+export const removeLocalDraft = (kind: PbxResourceKind, id: string): void => writeLocalDrafts(readLocalDrafts().filter(draft => draft.kind !== kind || draft.id !== id))
+
+const saveLocalDraft = (resource: PbxResource): PbxResource => {
+  const stored: PbxResource = { ...resource, revision: resource.revision, updatedAt: new Date().toISOString(), provenance: 'local-draft', pendingReview: true }
+  const drafts = readLocalDrafts()
+  const index = drafts.findIndex(item => item.kind === stored.kind && item.id === stored.id)
+  if (index >= 0) drafts[index] = stored
+  else drafts.push(stored)
+  writeLocalDrafts(drafts)
+  return stored
+}
 
 export class DisconnectedMaterialPbxClient implements MaterialPbxClient {
   readonly state: ConnectionState = 'disconnected'
   async preflight(): Promise<PreflightResult> { return { ok: false, state: 'disconnected', message: disconnectedMessage } }
   async health(): Promise<HealthSnapshot> { return { state: 'disconnected', serverName: 'No server connected', activeCalls: 0, registeredDevices: 0, warnings: [disconnectedMessage], checkedAt: new Date().toISOString() } }
   async capabilities(): Promise<CapabilitySnapshot> { return { schemaVersion: 1, generatedAt: new Date(0).toISOString(), degraded: true, warnings: [disconnectedMessage], capabilities: [] } }
-  async list(_kind: PbxResourceKind): Promise<PbxResource[]> { return [] }
-  async save(resource: PbxResource): Promise<SaveResult> { return { ok: false, resource, message: disconnectedMessage } }
-  async remove(_kind: PbxResourceKind, _id: string): Promise<SaveResult> { return { ok: false, message: disconnectedMessage } }
+  async list(kind: PbxResourceKind): Promise<PbxResource[]> { return listLocalDrafts(kind) }
+  async save(resource: PbxResource): Promise<SaveResult> {
+    try { return { ok: true, resource: saveLocalDraft(resource), storedLocally: true, message: disconnectedMessage } }
+    catch (error) { return { ok: false, resource, storedLocally: false, message: error instanceof Error ? error.message : 'The local draft was not saved.' } }
+  }
+  async remove(kind: PbxResourceKind, id: string): Promise<SaveResult> {
+    try { removeLocalDraft(kind, id); return { ok: true, storedLocally: true, message: disconnectedMessage } }
+    catch (error) { return { ok: false, storedLocally: false, message: error instanceof Error ? error.message : 'The local draft was not removed.' } }
+  }
   async validateTestCall(_destination: string): Promise<SaveResult> { return { ok: false, message: 'A test call needs a connected PBX and a confirmed emergency-calling policy.' } }
 }
 
-export class MaterialPbxRequestError extends Error { constructor(readonly state: ConnectionState, message: string) { super(message) } }
-const resourceKinds: PbxResourceKind[] = ['extensions','users','devices','trunks','inbound-routes','outbound-routes','ivrs','queues','ring-groups','conferences','voicemail','recordings','cdr','cel','calendars','presence','parking','paging','announcements','time-conditions','webrtc','paired-servers','backups','observability','security']
+export class MaterialPbxRequestError extends Error {
+  readonly state: ConnectionState
+
+  constructor(state: ConnectionState, message: string) {
+    super(message)
+    this.state = state
+  }
+}
 const isObject = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 const strings = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 const kinds = (value: unknown) => strings(value).filter((item): item is PbxResourceKind => resourceKinds.includes(item as PbxResourceKind))
+
+const mapResource = (value: unknown, expectedKind?: PbxResourceKind): PbxResource | null => {
+  if (!isObject(value) || typeof value.id !== 'string' || typeof value.displayName !== 'string' || typeof value.updatedAt !== 'string' || typeof value.enabled !== 'boolean') return null
+  const kind = typeof value.kind === 'string' && resourceKinds.includes(value.kind as PbxResourceKind) ? value.kind as PbxResourceKind : expectedKind
+  if (!kind || !isObject(value.configuration)) return null
+  return {
+    id: value.id,
+    kind,
+    name: value.displayName,
+    summary: '',
+    enabled: value.enabled,
+    tags: [],
+    updatedAt: value.updatedAt,
+    revision: typeof value.revision === 'number' && Number.isInteger(value.revision) ? value.revision : undefined,
+    details: value.configuration,
+    provenance: 'server',
+    pendingReview: false,
+  }
+}
+
+const mapApplication = (value: unknown): NativeApplicationOutcome | undefined => {
+  if (!isObject(value) || typeof value.applied !== 'boolean' || typeof value.reloaded !== 'boolean' || typeof value.runtimeVerification !== 'string' || typeof value.partialFailure !== 'boolean') return undefined
+  return {
+    storedDesired: typeof value.storedDesired === 'boolean' ? value.storedDesired : undefined,
+    applied: value.applied,
+    reloaded: value.reloaded,
+    runtimeVerification: value.runtimeVerification,
+    partialFailure: value.partialFailure,
+    compilation: isObject(value.compilation) ? value.compilation : undefined,
+    rollback: isObject(value.rollback) ? value.rollback : undefined,
+    warning: typeof value.warning === 'string' || value.warning === null ? value.warning : undefined,
+  }
+}
 
 function normalizeEndpoint(value: string) {
   const url = new URL(value)
@@ -76,7 +194,14 @@ function normalizeEndpoint(value: string) {
 export class HttpMaterialPbxClient implements MaterialPbxClient {
   private connectionState: ConnectionState = 'disconnected'
   private readonly endpoint: string
-  constructor(endpoint: string, private readonly adminCredential: string, private readonly fetcher: typeof fetch = fetch) { this.endpoint = normalizeEndpoint(endpoint) }
+  private readonly adminCredential: string
+  private readonly fetcher: typeof fetch
+
+  constructor(endpoint: string, adminCredential: string, fetcher: typeof fetch = fetch) {
+    this.endpoint = normalizeEndpoint(endpoint)
+    this.adminCredential = adminCredential
+    this.fetcher = fetcher
+  }
   get state() { return this.connectionState }
 
   private async request(path: string, init: RequestInit = {}) {
@@ -115,20 +240,26 @@ export class HttpMaterialPbxClient implements MaterialPbxClient {
     const value = await this.request(`/v1/resources?kind=${encodeURIComponent(kind)}`)
     const items = Array.isArray(value) ? value : isObject(value) && Array.isArray(value.items) ? value.items : null
     if (!items) throw new MaterialPbxRequestError('incompatible', `The ${kind} response does not contain a resource list.`)
-    return items.filter(isObject).flatMap((item) => typeof item.id === 'string' && typeof item.name === 'string' ? [{ id: item.id, kind, name: item.name, summary: typeof item.summary === 'string' ? item.summary : '', enabled: item.enabled !== false, tags: strings(item.tags), updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : '', details: isObject(item.details) ? item.details as PbxResource['details'] : undefined }] : [])
+    return items.map(item => mapResource(item, kind)).filter((item): item is PbxResource => item !== null)
   }
   async save(resource: PbxResource): Promise<SaveResult> {
     try {
-      const value = await this.request(`/v1/resources/${encodeURIComponent(resource.kind)}/${encodeURIComponent(resource.id)}`, { method: 'PUT', body: JSON.stringify(resource) })
-      return { ok: true, resource: isObject(value) && isObject(value.resource) ? { ...resource, ...value.resource } as PbxResource : resource, message: 'The control service accepted and returned the saved resource.' }
+      const mutation = { displayName: resource.name, enabled: resource.enabled, ...(resource.revision === undefined ? {} : { expectedRevision: resource.revision }), configuration: resource.details ?? {} }
+      const value = await this.request(`/v1/resources/${encodeURIComponent(resource.kind)}/${encodeURIComponent(resource.id)}`, { method: 'PUT', body: JSON.stringify(mutation) })
+      const application = isObject(value) ? mapApplication(value.application) : undefined
+      const saved = isObject(value) ? mapResource(value.resource, resource.kind) : null
+      const outcome = application ? ` Native application: ${application.applied ? 'applied' : 'not applied'}; reload: ${application.reloaded ? 'completed' : 'not completed'}; runtime verification: ${application.runtimeVerification}.` : ''
+      return { ok: true, resource: saved ?? resource, application, message: `The control service saved the resource.${outcome}` }
     } catch (error) {
       return { ok: false, resource, message: error instanceof Error ? error.message : 'The resource was not saved.', state: error instanceof MaterialPbxRequestError ? error.state : 'degraded' }
     }
   }
   async remove(kind: PbxResourceKind, id: string): Promise<SaveResult> {
     try {
-      await this.request(`/v1/resources/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`, { method: 'DELETE' })
-      return { ok: true, message: 'The control service confirmed removal.' }
+      const value = await this.request(`/v1/resources/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      const application = isObject(value) ? mapApplication(value.application) : undefined
+      const outcome = application ? ` Native removal: ${application.applied ? 'applied' : 'not applied'}; reload: ${application.reloaded ? 'completed' : 'not completed'}; runtime verification: ${application.runtimeVerification}.` : ''
+      return { ok: true, application, message: `The control service removed the stored resource.${outcome}` }
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : 'The resource was not removed.', state: error instanceof MaterialPbxRequestError ? error.state : 'degraded' }
     }

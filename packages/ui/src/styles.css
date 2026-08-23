@@ -264,6 +264,31 @@ h2 { font-size: clamp(1.45rem, 2vw, 2rem); }
 .resource-card { min-height: 230px; display: flex; flex-direction: column; gap: 16px; }
 .resource-card-title { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .resource-card-title h2 { margin: 0 0 6px; }
+.conference-editor-card { max-height: calc(100vh - 48px); overflow: hidden !important; background: rgb(var(--v-theme-surface)); }
+.conference-editor-card > .v-card-text { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.conference-editor-title { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 16px; padding-right: 12px; }
+.conference-close-glyph { display: block; font: 400 1.75rem/1 var(--pbx-font); }
+.conference-editor-actions { flex: 0 0 auto; min-height: 64px; padding: 10px 20px; border-top: 1px solid rgb(var(--v-theme-outline-variant)); background: rgb(var(--v-theme-surface-container-high)); box-shadow: 0 -6px 18px color-mix(in srgb, rgb(var(--v-theme-shadow)) 12%, transparent); z-index: 2; }
+.conference-editor { display: grid; gap: 24px; }
+.conference-presets, .conference-section, .conference-review { padding: 20px; border: 1px solid rgb(var(--v-theme-outline-variant)); border-radius: 24px; background: rgb(var(--v-theme-surface-container-low)); }
+.conference-presets { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.conference-presets h2, .conference-section h2, .conference-review h2 { margin: 0 0 6px; }
+.conference-presets p, .conference-section-copy p, .conference-review p, .conference-capacity-control p { margin: 0; color: rgb(var(--v-theme-on-surface-variant)); }
+.conference-preset-actions, .conference-review-chips { display: flex; flex-wrap: wrap; gap: 10px; }
+.conference-section { display: grid; gap: 12px; }
+.conference-section-copy { margin-bottom: 4px; }
+.conference-kicker { font-size: .75rem; font-weight: 700; letter-spacing: .12em; color: rgb(var(--v-theme-primary)) !important; }
+.conference-number-control { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(260px, 360px); gap: 20px; align-items: center; padding: 18px; border-radius: 18px; background: rgb(var(--v-theme-surface-container)); }
+.conference-number-display { display: grid; gap: 5px; }
+.conference-number-display span { font-weight: 650; }
+.conference-number-display output { min-height: 1.2em; font: 700 clamp(2rem, 5vw, 3.4rem)/1 var(--pbx-font); letter-spacing: .08em; overflow-wrap: anywhere; color: rgb(var(--v-theme-primary)); }
+.conference-number-display small { color: rgb(var(--v-theme-on-surface-variant)); }
+.conference-dial-pad { display: grid; grid-template-columns: repeat(3, minmax(68px, 1fr)); gap: 8px; }
+.conference-dial-pad .v-btn { min-height: 48px; }
+.conference-capacity-control { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(150px, 210px); gap: 12px 20px; align-items: center; padding: 16px; border-radius: 18px; background: rgb(var(--v-theme-surface-container)); }
+.conference-capacity-control .v-slider { grid-column: 1 / -1; }
+.conference-review { display: grid; gap: 16px; }
+.conference-advanced { border-radius: 18px; overflow: hidden; }
 .resource-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; }
 .feature-empty { grid-column: 1 / -1; min-height: 310px; display: grid; place-items: center; align-content: center; text-align: center; gap: 8px; border: 1px dashed rgb(var(--v-theme-outline)); }
 .call-flow-canvas { display: grid; justify-items: center; gap: 14px; padding: clamp(18px, 4vw, 38px); margin-bottom: 22px; border-radius: 24px; background: radial-gradient(circle at top, color-mix(in srgb, rgb(var(--v-theme-primary)) 16%, transparent), transparent 52%), rgb(var(--v-theme-surface-container)); border: 1px solid rgb(var(--v-theme-outline-variant)); overflow-x: auto; }
@@ -276,6 +301,7 @@ h2 { font-size: clamp(1.45rem, 2vw, 2rem); }
 .preflight-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-block: 18px; }
 .preflight-list > div { display: flex; align-items: center; gap: 10px; padding: 12px; border-radius: 14px; background: rgb(var(--v-theme-surface-container)); }
 .snackbar-stack { position: fixed; right: 20px; bottom: 20px; display: grid; width: min(420px, calc(100vw - 40px)); gap: 10px; z-index: 3000; }
+.snackbar-stack--editor-open { right: auto; left: 20px; bottom: 88px; }
 .focus-mode > *:not(.v-alert):not(.headline-row) { opacity: .48; transition: opacity .2s ease; }
 .focus-mode > *:hover, .focus-mode > *:focus-within { opacity: 1; }
 .low-stimulation { filter: saturate(.62); }
@@ -292,6 +318,17 @@ h2 { font-size: clamp(1.45rem, 2vw, 2rem); }
 .reduced-motion.rainbow-accent .v-btn.bg-primary, .reduced-motion.rainbow-accent .v-avatar.bg-primary { animation: none; filter: hue-rotate(210deg) saturate(1.15); }
 
 @media (max-width: 760px) {
+  .resource-editor-dialog { width: 100% !important; max-width: 100% !important; max-height: 100% !important; margin: 0 !important; }
+  .conference-editor-card { max-height: 100vh; border-radius: 0 !important; }
+  .conference-editor-card > .v-card-text { padding-inline: 12px; }
+  .conference-editor-actions { padding-inline: 12px; }
+  .conference-presets { align-items: stretch; flex-direction: column; }
+  .conference-preset-actions { display: grid; grid-template-columns: 1fr; }
+  .conference-presets, .conference-section, .conference-review { padding: 14px; border-radius: 18px; }
+  .conference-number-control { grid-template-columns: 1fr; padding: 12px; }
+  .conference-dial-pad { grid-template-columns: repeat(3, minmax(48px, 1fr)); }
+  .conference-capacity-control { grid-template-columns: 1fr; }
+  .conference-capacity-control .v-slider { grid-column: auto; }
   .headline-row, .toolbar, .settings-search { flex-direction: column; align-items: stretch; }
   .feature-hero { grid-template-columns: 1fr; }
   .feature-symbol { width: 60px; border-radius: 18px; }
