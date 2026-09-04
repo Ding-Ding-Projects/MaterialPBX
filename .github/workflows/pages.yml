@@ -1,9 +1,11 @@
 name: Publish documentation site
 
 on:
-  push:
-    branches:
-      - main
+  workflow_run:
+    workflows:
+      - Build and publish Windows release
+    types:
+      - completed
   workflow_dispatch:
 
 permissions:
@@ -17,13 +19,90 @@ concurrency:
 
 jobs:
   build-and-publish:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: windows-2025
+    env:
+      GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.ORG_TOKEN || secrets.GITHUB_TOKEN }}
+      SOURCE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
     steps:
-      - name: Require the production branch
-        if: ${{ github.ref != 'refs/heads/main' }}
+      - name: Require a safe production source
         shell: pwsh
-        run: throw 'Documentation deployment is allowed only from refs/heads/main.'
+        run: |
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch' -and '${{ github.ref }}' -ne 'refs/heads/main') {
+            throw 'Manual documentation deployment is allowed only from refs/heads/main.'
+          }
+          if ($env:SOURCE_SHA -notmatch '^[0-9a-f]{40}$') {
+            throw "Documentation source SHA is not one full lowercase commit: $env:SOURCE_SHA"
+          }
+
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 1
+
+      - name: Prove the exact checked-out source
+        shell: pwsh
+        run: |
+          $checkedOut = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $checkedOut -ne $env:SOURCE_SHA) {
+            throw "Checked out $checkedOut, expected exact documentation source $env:SOURCE_SHA."
+          }
+
+      - name: Resolve the one verified release for this source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $desktopPackage = Get-Content -Raw 'apps/desktop/package.json' | ConvertFrom-Json
+          $version = [string]$desktopPackage.version
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "Desktop package version is not a three-part numeric version: $version"
+          }
+          $setupName = "MaterialPBX-$version-x64-Setup.exe"
+          $releaseJson = gh api --paginate --slurp "repos/$env:GITHUB_REPOSITORY/releases?per_page=100" --jq 'add'
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not read the complete release inventory.'
+          }
+          $releases = @($releaseJson | ConvertFrom-Json -Depth 100)
+          $matches = @($releases | Where-Object {
+            -not $_.draft -and
+            -not $_.prerelease -and
+            $_.target_commitish -eq $env:SOURCE_SHA -and
+            @($_.assets | Where-Object { $_.name -ceq $setupName }).Count -eq 1
+          })
+          if ($matches.Count -ne 1) {
+            throw "Expected exactly one final release for $env:SOURCE_SHA with $setupName; found $($matches.Count)."
+          }
+          $release = $matches[0]
+          $tag = [string]$release.tag_name
+          if ($tag -notmatch '^[A-Za-z0-9._-]+$') {
+            throw "Release tag contains unsupported characters: $tag"
+          }
+          $setupAssets = @($release.assets | Where-Object { $_.name -ceq $setupName })
+          if ($setupAssets.Count -ne 1 -or [int64]$setupAssets[0].size -le 0) {
+            throw "Release $tag does not contain exactly one non-empty $setupName asset."
+          }
+          $setupUrl = [string]$setupAssets[0].browser_download_url
+          $expectedSetupUrl = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/$setupName"
+          if ($setupUrl -cne $expectedSetupUrl) {
+            throw "Release setup URL is not the exact immutable asset URL: $setupUrl"
+          }
+          git fetch --force --no-tags origin "refs/tags/$tag:refs/tags/$tag"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not fetch release tag $tag for commit proof."
+          }
+          $tagCommit = (git rev-list -n 1 "refs/tags/$tag").Trim()
+          if ($LASTEXITCODE -ne 0 -or $tagCommit -ne $env:SOURCE_SHA) {
+            throw "Release tag $tag peels to $tagCommit, expected $env:SOURCE_SHA."
+          }
+          Add-Content -Path $env:GITHUB_ENV -Encoding utf8 -Value "VITE_MATERIALPBX_RELEASE_VERSION=$version"
+          Add-Content -Path $env:GITHUB_ENV -Encoding utf8 -Value "VITE_MATERIALPBX_RELEASE_TAG=$tag"
+          Add-Content -Path $env:GITHUB_ENV -Encoding utf8 -Value "VITE_MATERIALPBX_RELEASE_SETUP_URL=$setupUrl"
+
       - uses: pnpm/action-setup@v4
         with:
           version: 10.33.2
